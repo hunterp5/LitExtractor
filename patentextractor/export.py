@@ -23,7 +23,8 @@ from pathlib import Path
 
 from rdkit import Chem
 
-from .extraction import ExtractedMolecule, parse_mol
+from .chemistry import parse_mol
+from .models import ExtractedMolecule
 
 
 def molecule_export_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, str]]:

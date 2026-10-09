@@ -206,6 +206,17 @@ def test_figure_results_enrich_ethanol():
     assert recs[0].molecular_weight == pytest.approx(46.069, abs=0.05)
 
 
+def test_extraction_reexports_domain_models_and_chemistry_api():
+    from patentextractor import chemistry, models
+
+    assert extraction.ExtractOptions is models.ExtractOptions
+    assert extraction.ExtractedMolecule is models.ExtractedMolecule
+    assert extraction.ExtractionResult is models.ExtractionResult
+    assert extraction.parse_mol is chemistry.parse_mol
+    assert extraction.enrich_molecule is chemistry.enrich_molecule
+    assert extraction.prioritize_molecules is chemistry.prioritize_molecules
+
+
 def test_figure_results_expand_bbox_before_crop():
     import numpy as np
 

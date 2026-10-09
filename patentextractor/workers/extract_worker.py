@@ -22,7 +22,8 @@ import logging
 
 from PySide6.QtCore import QThread, Signal
 
-from ..extraction import ExtractOptions, ExtractionResult, extract_from_pdf
+from ..extraction import extract_from_pdf
+from ..models import ExtractOptions, ExtractionResult
 
 logger = logging.getLogger(__name__)
 

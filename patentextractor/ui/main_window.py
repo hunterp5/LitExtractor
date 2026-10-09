@@ -58,15 +58,10 @@ from ..structure_layout import (
     structure_height,
     structure_width,
 )
-from ..extraction import (
-    ExtractOptions,
-    ExtractedMolecule,
-    ExtractionResult,
-    cuda_available,
-    molecule_quality_score,
-    parse_mol,
-)
+from ..chemistry import molecule_quality_score, parse_mol
+from ..extraction import cuda_available
 from ..export import write_csv, write_sdf, write_smi
+from ..models import ExtractOptions, ExtractedMolecule, ExtractionResult
 from ..structure_draw import render_molecule_png
 from ..workers.extract_worker import ExtractWorker
 from .dialogs.custom_theme import CustomThemeDialog

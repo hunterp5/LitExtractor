@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
-"""OpenChemIE extraction wrapper, result models, and RDKit enrichment."""
+"""OpenChemIE extraction orchestration and result normalization."""
 
 from __future__ import annotations
 
@@ -23,14 +23,17 @@ import io
 import logging
 import os
 import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from rdkit import Chem
-from rdkit.Chem import Descriptors, rdMolDescriptors
-
+from .chemistry import (
+    enrich_molecule,
+    molecule_quality_score,
+    parse_mol,
+    prioritize_molecules,
+)
 from .crop_context import DEFAULT_MOLECULE_CROP_MARGIN, use_molecule_crop_margin
+from .models import ExtractOptions, ExtractedMolecule, ExtractedReaction, ExtractionResult
 from .openchemie_compat import openchemie_checkpoint_loads
 
 logger = logging.getLogger(__name__)
@@ -83,21 +86,6 @@ class OpenChemIEClient(Protocol):
     def extract_reactions_from_pdf(self, pdf: str, **kwargs: Any) -> dict: ...
 
 
-@dataclass
-class ExtractOptions:
-    figures: bool = True
-    text: bool = True
-    corefs: bool = False
-    reactions: bool = False
-    merge_by_inchi: bool = True
-    first_page: int = 1
-    num_pages: int | None = None
-    max_molecules: int | None = None
-    batch_size: int = 16
-    device: str = "cpu"
-    crop_margin: float = DEFAULT_MOLECULE_CROP_MARGIN
-
-
 SPEED_PRESETS: dict[str, dict[str, Any]] = {
     "quick": {
         "figures": True,
@@ -138,44 +126,6 @@ def apply_speed_preset(name: str, base: ExtractOptions | None = None) -> Extract
     for key, value in spec.items():
         setattr(opts, key, value)
     return opts
-
-
-@dataclass
-class ExtractedMolecule:
-    smiles: str
-    molfile: str = ""
-    source: str = "figure"
-    page: int | None = None
-    score: float | None = None
-    identifier: str = ""
-    formula: str = ""
-    molecular_weight: float | None = None
-    inchi_key: str = ""
-    crop_png: bytes | None = None
-    context: str = ""
-    bbox: tuple[float, ...] | None = None
-    sources: list[str] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        if not self.sources:
-            self.sources = [self.source]
-
-
-@dataclass
-class ExtractedReaction:
-    page: int | None
-    reactants: list[str]
-    products: list[str]
-    conditions: str
-    source: str = "figure"
-
-
-@dataclass
-class ExtractionResult:
-    pdf_path: str
-    molecules: list[ExtractedMolecule]
-    reactions: list[ExtractedReaction]
-    warnings: list[str] = field(default_factory=list)
 
 
 def cuda_available() -> bool:
@@ -340,67 +290,6 @@ def load_openchemie(device: str = "cpu") -> Any:
     client = OpenChemIE(device=torch_device)
     configure_openchemie_client(client)
     return client
-
-
-def parse_mol(*, smiles: str = "", molfile: str = "") -> Chem.Mol | None:
-    """Parse a molecule from molfile first, then SMILES."""
-    molfile = (molfile or "").strip()
-    if molfile:
-        mol = Chem.MolFromMolBlock(molfile, sanitize=False)
-        if mol is not None:
-            try:
-                Chem.SanitizeMol(mol)
-            except Exception:
-                try:
-                    mol.UpdatePropertyCache(strict=False)
-                    Chem.GetSSSR(mol)
-                except Exception:
-                    logger.debug("Molfile sanitization failed", exc_info=True)
-            return mol
-    smiles = (smiles or "").strip()
-    if not smiles:
-        return None
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is not None:
-        return mol
-    mol = Chem.MolFromSmiles(smiles, sanitize=False)
-    if mol is None:
-        return None
-    try:
-        mol.UpdatePropertyCache(strict=False)
-        Chem.GetSSSR(mol)
-    except Exception:
-        logger.debug("SMILES sanitization failed", exc_info=True)
-    return mol
-
-
-def enrich_molecule(mol_rec: ExtractedMolecule) -> ExtractedMolecule:
-    """Fill formula, MW, InChIKey, and canonical SMILES/molfile from RDKit."""
-    mol = parse_mol(smiles=mol_rec.smiles, molfile=mol_rec.molfile)
-    if mol is None:
-        return mol_rec
-    try:
-        mol_rec.smiles = Chem.MolToSmiles(mol) or mol_rec.smiles
-    except Exception:
-        logger.debug("Canonical SMILES failed", exc_info=True)
-    if not mol_rec.molfile:
-        try:
-            mol_rec.molfile = Chem.MolToMolBlock(mol) or ""
-        except Exception:
-            logger.debug("Molblock write failed", exc_info=True)
-    try:
-        mol_rec.formula = rdMolDescriptors.CalcMolFormula(mol)
-    except Exception:
-        logger.debug("Formula failed", exc_info=True)
-    try:
-        mol_rec.molecular_weight = round(float(Descriptors.MolWt(mol)), 3)
-    except Exception:
-        logger.debug("MolWt failed", exc_info=True)
-    try:
-        mol_rec.inchi_key = Chem.MolToInchiKey(mol) or ""
-    except Exception:
-        logger.debug("InChIKey failed", exc_info=True)
-    return mol_rec
 
 
 def ndarray_to_png_bytes(image: Any) -> bytes | None:
@@ -740,45 +629,6 @@ def merge_molecules_by_inchi(molecules: list[ExtractedMolecule]) -> list[Extract
         index[key] = len(merged)
         merged.append(rec)
     return merged
-
-
-def _molecule_is_valid(rec: ExtractedMolecule) -> bool:
-    """True when a molecule record has a parseable structure to present to users."""
-    if not rec.smiles and not rec.molfile:
-        return False
-    mol = parse_mol(smiles=rec.smiles, molfile=rec.molfile)
-    return mol is not None
-
-
-def molecule_quality_score(rec: ExtractedMolecule) -> float:
-    """Return a derived quality score that separates valid, well-annotated hits from weak candidates."""
-    raw = float(rec.score) if rec.score is not None else 0.0
-    valid = 1.0 if _molecule_is_valid(rec) else 0.0
-    quality = 0.5 * valid + 0.3 * max(0.0, min(1.0, raw))
-    if rec.formula:
-        quality += 0.08
-    if rec.molecular_weight is not None:
-        quality += 0.05
-    if rec.molfile:
-        quality += 0.05
-    if rec.identifier:
-        quality += 0.04
-    if rec.source == "text":
-        quality += 0.03
-    return min(1.0, max(0.0, quality))
-
-
-def prioritize_molecules(molecules: list[ExtractedMolecule]) -> list[ExtractedMolecule]:
-    """Rank valid, better-annotated structures above malformed or low-quality candidates."""
-    return sorted(
-        molecules,
-        key=lambda rec: (
-            0 if _molecule_is_valid(rec) else 1,
-            -molecule_quality_score(rec),
-            rec.page if rec.page is not None else 1_000_000,
-            str(rec.smiles or rec.molfile or rec.identifier or ""),
-        ),
-    )
 
 
 class ExtractionCancelled(RuntimeError):

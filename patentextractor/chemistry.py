@@ -1,0 +1,128 @@
+# This file is part of PatentExtractor.
+# Copyright (C) 2026 Hunter Picard
+#
+# PatentExtractor is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# PatentExtractor is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
+
+"""RDKit parsing, enrichment, validation, and ranking for molecule records."""
+
+from __future__ import annotations
+
+import logging
+
+from rdkit import Chem
+from rdkit.Chem import Descriptors, rdMolDescriptors
+
+from .models import ExtractedMolecule
+
+logger = logging.getLogger(__name__)
+
+
+def parse_mol(*, smiles: str = "", molfile: str = "") -> Chem.Mol | None:
+    """Parse a molecule from molfile first, then SMILES."""
+    molfile = (molfile or "").strip()
+    if molfile:
+        mol = Chem.MolFromMolBlock(molfile, sanitize=False)
+        if mol is not None:
+            try:
+                Chem.SanitizeMol(mol)
+            except Exception:
+                try:
+                    mol.UpdatePropertyCache(strict=False)
+                    Chem.GetSSSR(mol)
+                except Exception:
+                    logger.debug("Molfile sanitization failed", exc_info=True)
+            return mol
+    smiles = (smiles or "").strip()
+    if not smiles:
+        return None
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is not None:
+        return mol
+    mol = Chem.MolFromSmiles(smiles, sanitize=False)
+    if mol is None:
+        return None
+    try:
+        mol.UpdatePropertyCache(strict=False)
+        Chem.GetSSSR(mol)
+    except Exception:
+        logger.debug("SMILES sanitization failed", exc_info=True)
+    return mol
+
+
+def enrich_molecule(mol_rec: ExtractedMolecule) -> ExtractedMolecule:
+    """Fill formula, MW, InChIKey, and canonical SMILES/molfile from RDKit."""
+    mol = parse_mol(smiles=mol_rec.smiles, molfile=mol_rec.molfile)
+    if mol is None:
+        return mol_rec
+    try:
+        mol_rec.smiles = Chem.MolToSmiles(mol) or mol_rec.smiles
+    except Exception:
+        logger.debug("Canonical SMILES failed", exc_info=True)
+    if not mol_rec.molfile:
+        try:
+            mol_rec.molfile = Chem.MolToMolBlock(mol) or ""
+        except Exception:
+            logger.debug("Molblock write failed", exc_info=True)
+    try:
+        mol_rec.formula = rdMolDescriptors.CalcMolFormula(mol)
+    except Exception:
+        logger.debug("Formula failed", exc_info=True)
+    try:
+        mol_rec.molecular_weight = round(float(Descriptors.MolWt(mol)), 3)
+    except Exception:
+        logger.debug("MolWt failed", exc_info=True)
+    try:
+        mol_rec.inchi_key = Chem.MolToInchiKey(mol) or ""
+    except Exception:
+        logger.debug("InChIKey failed", exc_info=True)
+    return mol_rec
+
+
+def _molecule_is_valid(rec: ExtractedMolecule) -> bool:
+    """True when a molecule record has a parseable structure to present to users."""
+    if not rec.smiles and not rec.molfile:
+        return False
+    mol = parse_mol(smiles=rec.smiles, molfile=rec.molfile)
+    return mol is not None
+
+
+def molecule_quality_score(rec: ExtractedMolecule) -> float:
+    """Return a derived quality score that separates valid, well-annotated hits from weak candidates."""
+    raw = float(rec.score) if rec.score is not None else 0.0
+    valid = 1.0 if _molecule_is_valid(rec) else 0.0
+    quality = 0.5 * valid + 0.3 * max(0.0, min(1.0, raw))
+    if rec.formula:
+        quality += 0.08
+    if rec.molecular_weight is not None:
+        quality += 0.05
+    if rec.molfile:
+        quality += 0.05
+    if rec.identifier:
+        quality += 0.04
+    if rec.source == "text":
+        quality += 0.03
+    return min(1.0, max(0.0, quality))
+
+
+def prioritize_molecules(molecules: list[ExtractedMolecule]) -> list[ExtractedMolecule]:
+    """Rank valid, better-annotated molecules ahead of weaker candidates."""
+    return sorted(
+        molecules,
+        key=lambda rec: (
+            0 if _molecule_is_valid(rec) else 1,
+            -molecule_quality_score(rec),
+            rec.page if rec.page is not None else 1_000_000,
+            str(rec.smiles or rec.molfile or rec.identifier or ""),
+        ),
+    )

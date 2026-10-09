@@ -28,13 +28,14 @@ from PySide6.QtWidgets import (
     QTableView,
 )
 
+from ..chemistry import molecule_quality_score, parse_mol, prioritize_molecules
+from ..models import ExtractedMolecule
 from ..structure_layout import (
     structure_column_minimum_width,
     structure_height,
     structure_row_height,
     structure_width,
 )
-from ..extraction import ExtractedMolecule, molecule_quality_score, parse_mol, prioritize_molecules
 from ..structure_draw import render_molecule_png
 
 HEADERS = (
