@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 from patentextractor.openchemie_compat import (
     dropbox_direct_url,
     install_pdftotext_shim,
@@ -88,10 +90,69 @@ def test_paragraphs_from_page_text_splits_sentences():
     sentences = [s.strip() for block in blocks for s in block]
     assert any("CCO" in s for s in sentences)
 
-    def test_paragraph_source_disables_text_reactions_explicitly():
-        from patentextractor.openchemie_compat import PdfParagraphSource
 
-        assert PdfParagraphSource().extract_reactions_from_text() == []
+def test_paragraph_source_disables_text_reactions_explicitly():
+    from patentextractor.openchemie_compat import PdfParagraphSource
+
+    assert PdfParagraphSource().extract_reactions_from_text() == []
+
+
+def test_torch_load_compatibility_is_scoped_and_idempotent(monkeypatch):
+    import torch
+
+    from patentextractor.openchemie_compat import (
+        openchemie_checkpoint_loads,
+        patch_torch_load_weights_only_default,
+    )
+
+    calls = []
+
+    def original_load(*args, **kwargs):
+        calls.append(kwargs.copy())
+        return kwargs
+
+    monkeypatch.setattr(torch, "load", original_load)
+    patch_torch_load_weights_only_default()
+    patched_load = torch.load
+
+    assert patched_load.__wrapped__ is original_load
+    assert patched_load("checkpoint.pth") == {}
+    with openchemie_checkpoint_loads():
+        assert patched_load("checkpoint.pth") == {"weights_only": False}
+        assert patched_load("checkpoint.pth", weights_only=True) == {"weights_only": True}
+
+    patch_torch_load_weights_only_default()
+    assert torch.load is patched_load
+    assert calls == [{}, {"weights_only": False}, {"weights_only": True}]
+
+
+def test_transformers_torch_load_gate_is_scoped(monkeypatch):
+    import transformers.modeling_utils as modeling_utils
+    import transformers.utils.import_utils as import_utils
+
+    from patentextractor.openchemie_compat import (
+        openchemie_checkpoint_loads,
+        patch_transformers_torch_load_check,
+    )
+
+    calls = []
+
+    def original_check():
+        calls.append("checked")
+        raise RuntimeError("unsafe torch version")
+
+    monkeypatch.setattr(import_utils, "check_torch_load_is_safe", original_check)
+    monkeypatch.setattr(modeling_utils, "check_torch_load_is_safe", original_check)
+    patch_transformers_torch_load_check()
+    patched_check = import_utils.check_torch_load_is_safe
+
+    with pytest.raises(RuntimeError, match="unsafe torch version"):
+        patched_check()
+    with openchemie_checkpoint_loads():
+        assert patched_check() is None
+    assert modeling_utils.check_torch_load_is_safe is patched_check
+    assert calls == ["checked"]
+
 
 def test_moldetect_crop_expansion_uses_real_context_pixels():
     import numpy as np

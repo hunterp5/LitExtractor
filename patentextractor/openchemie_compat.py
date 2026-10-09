@@ -18,6 +18,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 import logging
 import os
 import sys
@@ -32,6 +35,20 @@ from .crop_context import (
 )
 
 logger = logging.getLogger(__name__)
+_allow_legacy_checkpoint_loads: ContextVar[bool] = ContextVar(
+    "patentextractor_allow_legacy_checkpoint_loads",
+    default=False,
+)
+
+
+@contextmanager
+def openchemie_checkpoint_loads() -> Iterator[None]:
+    """Allow legacy OpenChemIE checkpoints only during a scoped extraction call."""
+    token = _allow_legacy_checkpoint_loads.set(True)
+    try:
+        yield
+    finally:
+        _allow_legacy_checkpoint_loads.reset(token)
 
 
 def preload_pdftotext() -> None:
@@ -211,29 +228,36 @@ def patch_transformers_torch_load_check() -> None:
     """
     Transformers 4.49+ refuses ``torch.load`` on PyTorch < 2.6 (CVE-2025-32434).
 
-    OpenChemIE / ChemNER still load Hugging Face ``.bin`` checkpoints. Torch 2.6
-    would also break MolScribe (default ``weights_only=True``), so we keep 2.5
-    and skip the transformers version gate for this trusted local use.
+    OpenChemIE / ChemNER still load Hugging Face ``.bin`` checkpoints. The version
+    gate is bypassed only inside :func:`openchemie_checkpoint_loads`; elsewhere the
+    original Transformers check remains active.
     """
     try:
         import transformers.utils.import_utils as import_utils
     except ImportError:
         return
-    if getattr(import_utils.check_torch_load_is_safe, "_patentextractor_patched", False):
+    original_check = getattr(import_utils, "check_torch_load_is_safe", None)
+    if not callable(original_check):
+        return
+    if getattr(original_check, "_patentextractor_patched", False):
         return
 
     def _check_torch_load_is_safe() -> None:
-        return None
+        if _allow_legacy_checkpoint_loads.get():
+            return None
+        original_check()
 
     _check_torch_load_is_safe._patentextractor_patched = True  # type: ignore[attr-defined]
+    _check_torch_load_is_safe.__wrapped__ = original_check  # type: ignore[attr-defined]
     import_utils.check_torch_load_is_safe = _check_torch_load_is_safe
     try:
         import transformers.modeling_utils as modeling_utils
 
-        modeling_utils.check_torch_load_is_safe = _check_torch_load_is_safe
+        if hasattr(modeling_utils, "check_torch_load_is_safe"):
+            setattr(modeling_utils, "check_torch_load_is_safe", _check_torch_load_is_safe)
     except Exception:
         logger.debug("Could not patch transformers.modeling_utils check", exc_info=True)
-    logger.info("Relaxed transformers torch.load version gate (PyTorch < 2.6).")
+    logger.info("Scoped Transformers torch.load compatibility to OpenChemIE model calls.")
 
 
 def patch_torch_load_weights_only_default() -> None:
@@ -247,10 +271,12 @@ def patch_torch_load_weights_only_default() -> None:
         return
 
     def _load(*args: Any, **kwargs: Any) -> Any:
-        kwargs.setdefault("weights_only", False)
+        if _allow_legacy_checkpoint_loads.get():
+            kwargs.setdefault("weights_only", False)
         return load(*args, **kwargs)
 
     _load._patentextractor_patched = True  # type: ignore[attr-defined]
+    _load.__wrapped__ = load  # type: ignore[attr-defined]
     torch.load = _load
 
 

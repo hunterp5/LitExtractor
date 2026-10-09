@@ -31,6 +31,7 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
 
 from .crop_context import DEFAULT_MOLECULE_CROP_MARGIN, use_molecule_crop_margin
+from .openchemie_compat import openchemie_checkpoint_loads
 
 logger = logging.getLogger(__name__)
 
@@ -903,10 +904,11 @@ def extract_from_pdf(
             _check_cancel()
             _progress("Extracting molecules from figures…")
             try:
-                with use_molecule_crop_margin(options.crop_margin):
-                    figures = _normalize_openchemie_pages(
-                        client.extract_molecules_from_figures_in_pdf(work_pdf, **kwargs)
-                    )
+                with openchemie_checkpoint_loads():
+                    with use_molecule_crop_margin(options.crop_margin):
+                        figures = _normalize_openchemie_pages(
+                            client.extract_molecules_from_figures_in_pdf(work_pdf, **kwargs)
+                        )
                 molecules.extend(molecules_from_figure_results(figures, crop_margin=options.crop_margin))
                 molecules = _trim(molecules, warnings)
             except ExtractionCancelled:
@@ -919,7 +921,8 @@ def extract_from_pdf(
             _check_cancel()
             _progress("Extracting chemical names from text…")
             try:
-                pages = client.extract_molecules_from_text_in_pdf(work_pdf, **kwargs)
+                with openchemie_checkpoint_loads():
+                    pages = client.extract_molecules_from_text_in_pdf(work_pdf, **kwargs)
                 molecules.extend(molecules_from_text_results(pages))
                 molecules = _trim(molecules, warnings)
             except ExtractionCancelled:
@@ -932,9 +935,10 @@ def extract_from_pdf(
             _check_cancel()
             _progress("Resolving molecule–label coreferences…")
             try:
-                corefs = _normalize_openchemie_pages(
-                    client.extract_molecule_corefs_from_figures_in_pdf(work_pdf, **kwargs)
-                )
+                with openchemie_checkpoint_loads():
+                    corefs = _normalize_openchemie_pages(
+                        client.extract_molecule_corefs_from_figures_in_pdf(work_pdf, **kwargs)
+                    )
                 _apply_coref_identifiers(molecules, corefs)
             except ExtractionCancelled:
                 raise
@@ -946,7 +950,8 @@ def extract_from_pdf(
             _check_cancel()
             _progress("Extracting reactions…")
             try:
-                payload = client.extract_reactions_from_pdf(work_pdf, **kwargs)
+                with openchemie_checkpoint_loads():
+                    payload = client.extract_reactions_from_pdf(work_pdf, **kwargs)
                 if isinstance(payload, dict):
                     _normalize_openchemie_pages(payload.get("figures"))
                 rxns, rxn_mols = reactions_from_pdf_results(payload)
