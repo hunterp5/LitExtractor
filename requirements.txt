@@ -5,8 +5,10 @@ pillow>=10.0
 PyPDF2>=3.0.0
 numpy>=1.26,<3
 typing_extensions
-transformers<5
-layoutparser[effdet]>=0.3.4
+# The compatibility adapter targets this verified Transformers API version.
+transformers==4.57.6
+layoutparser[effdet]==0.3.4
+iopath==0.1.10
 pdf2image
 matplotlib
 seqeval
@@ -24,12 +26,13 @@ opencv-python-headless>=4.10.0.84
 # OpenChemIE needs PyTorch 2.x on Python 3.10/3.11 even though its metadata
 # still declares torch<2.0. Install a compatible torch first, then skip the
 # broken dependency resolution for the OpenChemIE git package.
-torch>=2.0
-ChemIENER @ git+https://github.com/Ozymandias314/ChemIENER.git
-MolScribe @ git+https://github.com/CrystalEye42/MolScribe.git@250f683
-RxnScribe @ git+https://github.com/Ozymandias314/MolDetect.git
-chemrxnextractor @ git+https://github.com/CrystalEye42/ChemRxnExtractor.git@0f9529d
-OpenChemIE @ git+https://github.com/CrystalEye42/OpenChemIE
+torch>=2.0,<3
+# Pin Git dependencies to the exact upstream revisions verified with the app.
+ChemIENER @ git+https://github.com/Ozymandias314/ChemIENER.git@a169dad9f2729de00c89367e45b5daec39a8cc33
+MolScribe @ git+https://github.com/CrystalEye42/MolScribe.git@250f683f52f5050eb624870ccfd04bccbcaa27e1
+RxnScribe @ git+https://github.com/Ozymandias314/MolDetect.git@e97f1971bfca3ddbbff6688e88caf6e9e9c41a0b
+chemrxnextractor @ git+https://github.com/CrystalEye42/ChemRxnExtractor.git@0f9529dbe3656e4ef5ea96c5b5ba990f7481700b
+OpenChemIE @ git+https://github.com/CrystalEye42/OpenChemIE@d9b50bb4fb094538eb071d6610f8e746a4fba32b
 
 # Install this file with:
 #   python -m pip install --no-deps -r requirements.txt
