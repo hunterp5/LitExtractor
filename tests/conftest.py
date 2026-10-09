@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -51,3 +52,12 @@ def qapp():
     if app is None:
         app = QApplication([])
     yield app
+
+
+@pytest.fixture(scope="session")
+def ddr2_sub_pdf() -> Path:
+    """Return the shared local patent sample, or skip tests that require it."""
+    path = Path(__file__).resolve().parents[1] / "samples" / "ddr2_sub.pdf"
+    if not path.is_file():
+        pytest.skip("Local sample samples/ddr2_sub.pdf is required for this test.")
+    return path

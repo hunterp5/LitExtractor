@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -30,7 +29,6 @@ from patentextractor.extraction import (
     ExtractionCancelled,
     _unpack_label,
     apply_speed_preset,
-    cuda_available,
     enrich_molecule,
     extract_from_pdf,
     merge_molecules_by_inchi,
@@ -100,22 +98,22 @@ class FakeClient:
         }
 
 
-def test_ddr2_sample_reports_missing_layoutparser_diagnostics():
-    pdf_path = Path(__file__).resolve().parents[1] / "samples" / "ddr2.pdf"
+def test_ddr2_sub_sample_reports_missing_layoutparser_diagnostics(ddr2_sub_pdf):
+    pdf_path = ddr2_sub_pdf
     error = ModuleNotFoundError("No module named 'layoutparser'")
     message = (
-        "OpenChemIE could not be imported while processing 'ddr2.pdf'.\n"
+        "OpenChemIE could not be imported while processing 'ddr2_sub.pdf'.\n"
         "Original import error: No module named 'layoutparser'\n\n"
         "Likely missing dependency: layoutparser"
     )
-    assert "ddr2.pdf" in message
+    assert "ddr2_sub.pdf" in message
     assert "layoutparser" in message.lower()
     assert pdf_path.exists()
 
     from patentextractor.extraction import build_openchemie_import_diagnostic
 
     diagnostic = build_openchemie_import_diagnostic(error, pdf_path=str(pdf_path))
-    assert "ddr2.pdf" in diagnostic
+    assert "ddr2_sub.pdf" in diagnostic
     assert "layoutparser" in diagnostic.lower()
     assert "python -m pip install layoutparser" in diagnostic
 
@@ -144,12 +142,12 @@ def test_openchemie_import_error_is_not_reported_as_missing_dependency():
         "cannot import name 'safe_rotate_enlarged_img_size' from "
         "'albumentations.augmentations.geometric.functional'"
     )
-    message = build_openchemie_import_diagnostic(exc, pdf_path="ddr2.pdf")
+    message = build_openchemie_import_diagnostic(exc, pdf_path="ddr2_sub.pdf")
 
     assert "missing dependency" not in message.lower()
     assert "albumentations" in message.lower()
     assert "incompatible" in message.lower()
-    assert "ddr2.pdf" in message
+    assert "ddr2_sub.pdf" in message
 
 
 def test_pdftotext_missing_uses_windows_shim_guidance():
@@ -163,7 +161,7 @@ def test_pdftotext_missing_uses_windows_shim_guidance():
 
     message = build_openchemie_import_diagnostic(
         ModuleNotFoundError("No module named 'pdftotext'"),
-        pdf_path="ddr2.pdf",
+        pdf_path="ddr2_sub.pdf",
     )
     assert "pdftotext" in message.lower()
     assert "pip install pdftotext" not in message.lower()
@@ -378,26 +376,16 @@ def test_text_span_becomes_identifier_and_smiles():
 
 
 @pytest.mark.integration
-def test_ddr2_edge_structures_extract_end_to_end():
-    configured_pdf = os.environ.get("PATENTEXTRACTOR_DDR2_SAMPLE")
-    pdf_path = (
-        Path(configured_pdf)
-        if configured_pdf
-        else Path(__file__).resolve().parents[1] / "samples" / "ddr2.pdf"
-    )
-    if not pdf_path.is_file():
-        pytest.skip(
-            "Set PATENTEXTRACTOR_DDR2_SAMPLE to a local DDR2 PDF to run this integration test."
-        )
+def test_ddr2_sub_edge_structures_extract_end_to_end(ddr2_sub_pdf):
     result = extract_from_pdf(
-        str(pdf_path),
+        str(ddr2_sub_pdf),
         ExtractOptions(
             figures=True,
             text=False,
             corefs=False,
             reactions=False,
             merge_by_inchi=True,
-            first_page=6,
+            first_page=1,
             num_pages=1,
             max_molecules=50,
             batch_size=8,
@@ -408,7 +396,7 @@ def test_ddr2_edge_structures_extract_end_to_end():
     smiles = [molecule.smiles for molecule in result.molecules]
     assert any("Cc1cn(-c2cc(" in value for value in smiles)
     assert any("CNC(=O)c1cc(Oc2ccc(NC(=O)" in value for value in smiles)
-    assert {molecule.page for molecule in result.molecules} == {6}
+    assert {molecule.page for molecule in result.molecules} == {1}
 
 
 def test_prioritize_molecules_ranks_valid_high_score_entries_first():

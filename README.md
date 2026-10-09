@@ -90,7 +90,7 @@ The default suite skips model-backed integration tests and does not download mod
 python -m pytest --run-integration -m integration
 ```
 
-The research PDF used by this test is not distributed with the repository. Place an authorized local copy at `samples/ddr2.pdf`, or set `PATENTEXTRACTOR_DDR2_SAMPLE` to its path; the test skips when no sample is available.
+The integration test uses the local one-page sample `samples/ddr2_sub.pdf`, which is not distributed with the repository. Place an authorized copy at that path; the integration test (and the sample-dependent diagnostic test) skip when it is unavailable. Other tests create small temporary PDFs when they specifically test PDF generation or page slicing.
 
 ---
 
