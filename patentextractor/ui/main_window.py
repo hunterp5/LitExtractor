@@ -654,7 +654,9 @@ class MainWindow(QMainWindow):
             self._on_extract_failed("Unexpected extraction result.")
             return
         self._result = result
-        self._mol_table.molecule_model().set_molecules(result.molecules)
+        self._mol_table.molecule_model().set_molecules(
+            result.molecules, already_prioritized=True
+        )
         self._mol_table.apply_structure_layout()
         self._fill_reactions(result)
         if result.molecules:

@@ -36,6 +36,20 @@ def test_main_window_loads_molecules(qapp):  # noqa: ARG001
     w.close()
 
 
+def test_main_window_does_not_rank_results_twice(qapp, monkeypatch):
+    import patentextractor.ui.molecule_table as molecule_table
+
+    def unexpected_ranking(_molecules):
+        raise AssertionError("already-ranked extraction results should not be ranked again")
+
+    monkeypatch.setattr(molecule_table, "prioritize_molecules", unexpected_ranking)
+    w = MainWindow()
+    rec = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="EtOH", page=1))
+    w._on_extract_finished(ExtractionResult(pdf_path="demo.pdf", molecules=[rec], reactions=[]))
+    assert w._mol_table.molecule_model().rowCount() == 1
+    w.close()
+
+
 def test_main_window_theme_switch(qapp):
     w = MainWindow()
     apply_application_theme(qapp, THEME_DARK)

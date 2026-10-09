@@ -33,6 +33,7 @@ from .chemistry import (
     prioritize_molecules,
 )
 from .crop_context import DEFAULT_MOLECULE_CROP_MARGIN, use_molecule_crop_margin
+from .model_runtime import get_cached_openchemie_client, openchemie_client_session
 from .models import ExtractOptions, ExtractedMolecule, ExtractedReaction, ExtractionResult
 from .openchemie_compat import openchemie_checkpoint_loads
 
@@ -265,31 +266,35 @@ def build_openchemie_import_diagnostic(exc: ImportError, *, pdf_path: str | None
 
 def load_openchemie(device: str = "cpu") -> Any:
     """Import and construct OpenChemIE, raising a clear error if it is missing."""
-    from .openchemie_compat import configure_openchemie_client, prepare_openchemie_imports
-
-    missing = missing_openchemie_runtime_dependencies()
-    if missing:
-        detail = ModuleNotFoundError(f"No module named '{missing[0]}'")
-        raise ExtractorUnavailableError(build_openchemie_import_diagnostic(detail)) from detail
-
-    prepare_openchemie_imports()
-    try:
-        import torch
-        from openchemie import OpenChemIE
-    except ImportError as exc:
-        raise ExtractorUnavailableError(build_openchemie_import_diagnostic(exc)) from exc
-
     selected_device = resolve_torch_device(device)
     if device == "cuda" and selected_device == "cpu":
         logger.warning(
             "CUDA was requested for OpenChemIE, but no compatible NVIDIA GPU was detected; "
             "falling back to CPU."
         )
-    torch_device = torch.device(selected_device)
-    logger.info("Loading OpenChemIE on %s", torch_device)
-    client = OpenChemIE(device=torch_device)
-    configure_openchemie_client(client)
-    return client
+
+    def create_client() -> Any:
+        from .openchemie_compat import configure_openchemie_client, prepare_openchemie_imports
+
+        missing = missing_openchemie_runtime_dependencies()
+        if missing:
+            detail = ModuleNotFoundError(f"No module named '{missing[0]}'")
+            raise ExtractorUnavailableError(build_openchemie_import_diagnostic(detail)) from detail
+
+        prepare_openchemie_imports()
+        try:
+            import torch
+            from openchemie import OpenChemIE
+        except ImportError as exc:
+            raise ExtractorUnavailableError(build_openchemie_import_diagnostic(exc)) from exc
+
+        torch_device = torch.device(selected_device)
+        logger.info("Loading OpenChemIE on %s", torch_device)
+        client = OpenChemIE(device=torch_device)
+        configure_openchemie_client(client)
+        return client
+
+    return get_cached_openchemie_client(selected_device, create_client)
 
 
 def ndarray_to_png_bytes(image: Any) -> bytes | None:
@@ -702,6 +707,33 @@ def extract_from_pdf(
     should_cancel: Callable[[], bool] | None = None,
 ) -> ExtractionResult:
     """Run the selected OpenChemIE extractors and return enriched records."""
+    if client is None:
+        with openchemie_client_session():
+            return _extract_from_pdf(
+                pdf_path,
+                options,
+                client=client,
+                progress=progress,
+                should_cancel=should_cancel,
+            )
+    return _extract_from_pdf(
+        pdf_path,
+        options,
+        client=client,
+        progress=progress,
+        should_cancel=should_cancel,
+    )
+
+
+def _extract_from_pdf(
+    pdf_path: str,
+    options: ExtractOptions,
+    *,
+    client: OpenChemIEClient | None = None,
+    progress: ProgressCallback | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> ExtractionResult:
+    """Implementation shared by cached-client and caller-supplied extraction runs."""
 
     def _progress(message: str) -> None:
         if progress is not None:

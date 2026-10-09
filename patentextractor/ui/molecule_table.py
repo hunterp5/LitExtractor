@@ -153,9 +153,13 @@ class MoleculeTableModel(QAbstractTableModel):
     def molecules(self) -> list[ExtractedMolecule]:
         return list(self._rows)
 
-    def set_molecules(self, molecules: list[ExtractedMolecule]) -> None:
+    def set_molecules(
+        self, molecules: list[ExtractedMolecule], *, already_prioritized: bool = False
+    ) -> None:
         self.beginResetModel()
-        self._rows = prioritize_molecules(list(molecules))
+        self._rows = (
+            list(molecules) if already_prioritized else prioritize_molecules(list(molecules))
+        )
         self._pixmaps = [render_structure_pixmap(rec) for rec in self._rows]
         self.endResetModel()
 

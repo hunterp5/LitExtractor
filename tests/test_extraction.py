@@ -411,6 +411,25 @@ def test_prioritize_molecules_ranks_valid_high_score_entries_first():
     assert ordered[-1].smiles == "not_a_real_molecule"
 
 
+def test_prioritize_molecules_parses_validity_once_per_record(monkeypatch):
+    import patentextractor.chemistry as chemistry
+
+    records = [ExtractedMolecule(smiles="CCO"), ExtractedMolecule(smiles="invalid")]
+    original_parse = chemistry.parse_mol
+    parsed: list[str] = []
+
+    def counted_parse(*, smiles="", molfile=""):
+        parsed.append(smiles or molfile)
+        return original_parse(smiles=smiles, molfile=molfile)
+
+    monkeypatch.setattr(chemistry, "parse_mol", counted_parse)
+
+    ranked = chemistry.prioritize_molecules(records)
+
+    assert ranked == records
+    assert parsed == ["CCO", "invalid"]
+
+
 def test_malformed_empty_label_tuples_are_ignored():
     assert _unpack_label(([], [], []), "The compound CCO was used.") == ("", 0, 0)
     assert _unpack_label([], "The compound CCO was used.") == ("", 0, 0)

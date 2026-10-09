@@ -99,9 +99,14 @@ def _molecule_is_valid(rec: ExtractedMolecule) -> bool:
 
 def molecule_quality_score(rec: ExtractedMolecule) -> float:
     """Return a derived quality score that separates valid, well-annotated hits from weak candidates."""
+    valid = _molecule_is_valid(rec)
+    return _quality_score_for_validity(rec, valid)
+
+
+def _quality_score_for_validity(rec: ExtractedMolecule, valid: bool) -> float:
+    """Compute the quality score using a validity result already obtained by the caller."""
     raw = float(rec.score) if rec.score is not None else 0.0
-    valid = 1.0 if _molecule_is_valid(rec) else 0.0
-    quality = 0.5 * valid + 0.3 * max(0.0, min(1.0, raw))
+    quality = 0.5 * float(valid) + 0.3 * max(0.0, min(1.0, raw))
     if rec.formula:
         quality += 0.08
     if rec.molecular_weight is not None:
@@ -117,12 +122,15 @@ def molecule_quality_score(rec: ExtractedMolecule) -> float:
 
 def prioritize_molecules(molecules: list[ExtractedMolecule]) -> list[ExtractedMolecule]:
     """Rank valid, better-annotated molecules ahead of weaker candidates."""
-    return sorted(
-        molecules,
-        key=lambda rec: (
-            0 if _molecule_is_valid(rec) else 1,
-            -molecule_quality_score(rec),
+    ranked: list[tuple[tuple[int, float, int, str], ExtractedMolecule]] = []
+    for rec in molecules:
+        valid = _molecule_is_valid(rec)
+        key = (
+            0 if valid else 1,
+            -_quality_score_for_validity(rec, valid),
             rec.page if rec.page is not None else 1_000_000,
             str(rec.smiles or rec.molfile or rec.identifier or ""),
-        ),
-    )
+        )
+        ranked.append((key, rec))
+    ranked.sort(key=lambda item: item[0])
+    return [rec for _, rec in ranked]
