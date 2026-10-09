@@ -1,0 +1,39 @@
+# Core GUI + chemistry
+PySide6==6.8.2
+rdkit>=2022.9.5
+pillow>=10.0
+PyPDF2>=3.0.0
+numpy>=1.26,<3
+typing_extensions
+transformers<5
+layoutparser[effdet]>=0.3.4
+pdf2image
+matplotlib
+seqeval
+easyocr
+IPython
+albumentations==1.1.0
+timm==0.4.12
+OpenNMT-py==2.2.0
+SmilesPE==0.0.3
+# pdftotext is intentionally omitted here: the app installs a PyPDF2 shim at runtime
+# on Windows because the native Poppler build is not available in the project venv.
+opencv-python>=4.10.0.84
+opencv-python-headless>=4.10.0.84
+
+# OpenChemIE needs PyTorch 2.x on Python 3.10/3.11 even though its metadata
+# still declares torch<2.0. Install a compatible torch first, then skip the
+# broken dependency resolution for the OpenChemIE git package.
+torch>=2.0
+ChemIENER @ git+https://github.com/Ozymandias314/ChemIENER.git
+MolScribe @ git+https://github.com/CrystalEye42/MolScribe.git@250f683
+RxnScribe @ git+https://github.com/Ozymandias314/MolDetect.git
+chemrxnextractor @ git+https://github.com/CrystalEye42/ChemRxnExtractor.git@0f9529d
+OpenChemIE @ git+https://github.com/CrystalEye42/OpenChemIE
+
+# Install this file with:
+#   python -m pip install --no-deps -r requirements.txt
+# OpenChemIE still declares torch<2.0 in its metadata, so dependency resolution
+# must be disabled for the compatibility workaround on Python 3.10/3.11.
+# The old OpenCV + NumPy pins were incompatible with Python 3.11 and caused the
+# install to fail before layoutparser and the rest of the runtime stack could be installed.

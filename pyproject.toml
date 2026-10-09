@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "patentextractor"
+version = "0.1.0"
+description = "Desktop tool to extract chemical structures from patents (PySide6 + RDKit + OpenChemIE)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Hunter Picard" }]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+]
+dependencies = [
+    "PySide6==6.8.2",
+    "rdkit>=2022.9.5",
+    "pillow>=10.0",
+    "PyPDF2>=3.0.0",
+    "numpy>=1.26,<3",
+    "typing_extensions",
+    "transformers<5",
+    "layoutparser[effdet]>=0.3.4",
+    "pdf2image",
+    "matplotlib",
+    "seqeval",
+    "easyocr",
+    "IPython",
+    "albumentations==1.1.0",
+    "timm==0.4.12",
+    "OpenNMT-py==2.2.0",
+    "SmilesPE==0.0.3",
+    "opencv-python>=4.10.0.84",
+    "opencv-python-headless>=4.10.0.84",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4,<9",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+patentextractor = "patentextractor.app:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["patentextractor*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["patentextractor", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E9",
+    "F63",
+    "F7",
+    "F82",
+    "F401",
+    "F841",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = [
+    "integration: requires external model weights or system services",
+]

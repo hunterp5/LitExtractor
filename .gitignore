@@ -1,0 +1,69 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+.venvs/
+.venv-check/
+venv/
+ENV/
+env/
+
+# Pytest / coverage / type check / Ruff
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE / editor (machine-local)
+.idea/
+/.vscode/settings.json
+
+# Cursor local state (keep project rules versioned)
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+
+# Local scratch PDFs at repo root
+/*.pdf
+/samples/*.pdf
+
+# Generated local diagnostics and temporary probes
+*.log
+/pytest.out
+/pytest_output.txt
+/pytest_pdftotext.txt
+/temp_*.py
+/temp_*.bat
+/probe_theme.py
+/debug_openchemie.py
+/debug_repro.py
+
+# Editor / OS junk
+.~lock.*
+*~
+Thumbs.db
+.DS_Store
