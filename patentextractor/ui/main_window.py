@@ -19,10 +19,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QActionGroup, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -36,7 +37,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -48,7 +48,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .. import __version__
 from ..crop_context import DEFAULT_MOLECULE_CROP_MARGIN
 from ..structure_layout import (
     DETAIL_STRUCTURE_HEIGHT,
@@ -68,7 +67,6 @@ from .dialogs.custom_theme import CustomThemeDialog
 from .dialogs.font_settings import FontSettingsDialog
 from .dialogs.structure_settings import StructureSettingsDialog
 from .molecule_table import MoleculeTableView, pixmap_from_png
-from .qt_widget_utils import apply_monospace_to_text_edit
 from .theme import (
     THEME_DARK,
     THEME_GROOVY,
@@ -113,6 +111,7 @@ class MainWindow(QMainWindow):
         self._pdf_path: str | None = None
         self._result: ExtractionResult | None = None
         self._worker: ExtractWorker | None = None
+        self._close_after_worker = False
         self._app_font_pt = load_saved_app_font_pt()
         apply_application_font_pt(self._app_font_pt)
         self._gui_theme = load_saved_theme_name()
@@ -593,7 +592,6 @@ class MainWindow(QMainWindow):
         return cuda_available()
 
     def _current_options(self) -> ExtractOptions:
-        pages = int(self._pages_spin.value())
         max_mols = int(self._max_mols_spin.value())
         first_page = int(self._first_page_spin.value())
         page_count = int(self._pages_spin.value())
@@ -630,7 +628,8 @@ class MainWindow(QMainWindow):
         self._worker.progress.connect(self._on_extract_progress)
         self._worker.finished_ok.connect(self._on_extract_finished)
         self._worker.failed.connect(self._on_extract_failed)
-        self._worker.finished.connect(lambda: self._set_busy(False))
+        self._worker.cancelled.connect(self._on_extract_cancelled)
+        self._worker.finished.connect(self._on_worker_thread_finished)
         self._worker.start()
 
     def cancel_extraction(self) -> None:
@@ -639,6 +638,21 @@ class MainWindow(QMainWindow):
             worker.requestInterruption()
             self._extract_status.setText("Cancel requested — waiting for the current step…")
             self.status_label.setText("Cancel requested.")
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            self._close_after_worker = True
+            self.cancel_extraction()
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def _on_worker_thread_finished(self) -> None:
+        self._set_busy(False)
+        if self._close_after_worker:
+            self._close_after_worker = False
+            self.close()
 
     def _set_busy(self, busy: bool) -> None:
         self._extract_btn.setEnabled(not busy)
@@ -676,6 +690,10 @@ class MainWindow(QMainWindow):
         self._extract_status.setText(message)
         self.status_label.setText("Extraction failed.")
         QMessageBox.critical(self, APP_NAME, message)
+
+    def _on_extract_cancelled(self) -> None:
+        self._extract_status.setText("Extraction cancelled.")
+        self.status_label.setText("Extraction cancelled.")
 
     def _fill_reactions(self, result: ExtractionResult) -> None:
         table = self._rxn_table
@@ -731,7 +749,7 @@ class MainWindow(QMainWindow):
         else:
             self._detail_crop.setPixmap(QPixmap())
             self._detail_crop.setText("—")
-        page = "—" if rec.page is None else str(rec.page)
+        page = "; ".join(str(page_number) for page_number in rec.page_numbers) or "—"
         score = f"{molecule_quality_score(rec):.3f}"
         mw = "—" if rec.molecular_weight is None else f"{rec.molecular_weight:.3f}"
         source = "; ".join(rec.sources) if rec.sources else rec.source
@@ -756,41 +774,54 @@ class MainWindow(QMainWindow):
             return None
         return mols
 
-    def export_csv(self) -> None:
-        mols = self._require_molecules()
-        if mols is None:
+    def _export_molecules(
+        self,
+        dialog_title: str,
+        file_filter: str,
+        writer: Callable[[str, list[ExtractedMolecule]], int | None],
+        success_message: Callable[[str, int | None], str],
+    ) -> None:
+        molecules = self._require_molecules()
+        if molecules is None:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export CSV", self._last_dir(), "CSV files (*.csv)"
+            self, dialog_title, self._last_dir(), file_filter
         )
         if not path:
             return
-        write_csv(path, mols)
+        try:
+            result = writer(path, molecules)
+        except Exception as exc:
+            logger.exception("Could not export molecules to %s", path)
+            QMessageBox.critical(
+                self,
+                APP_NAME,
+                f"Could not export to:\n{path}\n\n{exc}",
+            )
+            return
         self._set_last_dir(path)
-        self.status_label.setText(f"Wrote {Path(path).name}")
+        self.status_label.setText(success_message(path, result))
+
+    def export_csv(self) -> None:
+        self._export_molecules(
+            "Export CSV",
+            "CSV files (*.csv)",
+            write_csv,
+            lambda path, _result: f"Wrote {Path(path).name}",
+        )
 
     def export_sdf(self) -> None:
-        mols = self._require_molecules()
-        if mols is None:
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export SDF", self._last_dir(), "SDF files (*.sdf)"
+        self._export_molecules(
+            "Export SDF",
+            "SDF files (*.sdf)",
+            write_sdf,
+            lambda path, count: f"Wrote {count or 0} molecule(s) to {Path(path).name}",
         )
-        if not path:
-            return
-        n = write_sdf(path, mols)
-        self._set_last_dir(path)
-        self.status_label.setText(f"Wrote {n} molecule(s) to {Path(path).name}")
 
     def export_smi(self) -> None:
-        mols = self._require_molecules()
-        if mols is None:
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export SMILES", self._last_dir(), "SMILES files (*.smi *.txt)"
+        self._export_molecules(
+            "Export SMILES",
+            "SMILES files (*.smi *.txt)",
+            write_smi,
+            lambda path, _result: f"Wrote {Path(path).name}",
         )
-        if not path:
-            return
-        write_smi(path, mols)
-        self._set_last_dir(path)
-        self.status_label.setText(f"Wrote {Path(path).name}")

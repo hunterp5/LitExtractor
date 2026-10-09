@@ -35,7 +35,7 @@ def molecule_export_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, s
             {
                 "SMILES": rec.smiles,
                 "Identifier": rec.identifier,
-                "Page": "" if rec.page is None else str(rec.page),
+                "Page": "; ".join(str(page) for page in rec.page_numbers),
                 "Source": "; ".join(rec.sources) if rec.sources else rec.source,
                 "Score": "" if rec.score is None else f"{rec.score:.3f}",
                 "Formula": rec.formula,
@@ -87,7 +87,7 @@ def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
             if mol is None:
                 continue
             mol.SetProp("Identifier", rec.identifier)
-            mol.SetProp("Page", "" if rec.page is None else str(rec.page))
+            mol.SetProp("Page", "; ".join(str(page) for page in rec.page_numbers))
             mol.SetProp("Source", "; ".join(rec.sources) if rec.sources else rec.source)
             if rec.score is not None:
                 mol.SetProp("Score", f"{rec.score:.3f}")

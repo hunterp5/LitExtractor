@@ -101,6 +101,8 @@ Check Python style with:
 python -m ruff check patentextractor tests
 ```
 
+See [docs/code-audit.md](docs/code-audit.md) for the maintainability audit findings and remediation status.
+
 ## License and attribution
 
 PatentExtractor is licensed under the GNU General Public License v3 or later; see [LICENSE](LICENSE). OpenChemIE is a separate project (Fan et al., *Journal of Chemical Information and Modeling*, 2024). Cite the upstream tools and relevant research when using their models in published work.

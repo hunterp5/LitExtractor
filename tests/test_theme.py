@@ -64,20 +64,30 @@ def test_theme_defaults_to_light_and_persists_user_choice(qapp):
     from PySide6.QtCore import QSettings
 
     settings = QSettings("PatentExtractor", "PatentExtractor")
-    settings.remove("gui/theme")
     from patentextractor.ui.theme import load_saved_theme_name, save_theme_name
 
-    assert load_saved_theme_name() == THEME_LIGHT
-    save_theme_name(THEME_DARK)
-    assert load_saved_theme_name() == THEME_DARK
-    save_theme_name(THEME_LIGHT)
-    assert load_saved_theme_name() == THEME_LIGHT
+    original_value = settings.value("gui/theme")
+    had_original_value = settings.contains("gui/theme")
+    try:
+        settings.remove("gui/theme")
+        assert load_saved_theme_name() == THEME_LIGHT
+        save_theme_name(THEME_DARK)
+        assert load_saved_theme_name() == THEME_DARK
+        save_theme_name(THEME_LIGHT)
+        assert load_saved_theme_name() == THEME_LIGHT
+    finally:
+        if had_original_value:
+            settings.setValue("gui/theme", original_value)
+        else:
+            settings.remove("gui/theme")
 
 
 def test_gui_menu_selection_matches_saved_theme_on_startup(qapp):
     from PySide6.QtCore import QSettings
 
     settings = QSettings("PatentExtractor", "PatentExtractor")
+    original_value = settings.value("gui/theme")
+    had_original_value = settings.contains("gui/theme")
     settings.setValue("gui/theme", THEME_DARK)
 
     from patentextractor.ui.main_window import MainWindow
@@ -89,7 +99,10 @@ def test_gui_menu_selection_matches_saved_theme_on_startup(qapp):
         assert window._act_theme_light.isChecked() is False
     finally:
         window.close()
-        settings.remove("gui/theme")
+        if had_original_value:
+            settings.setValue("gui/theme", original_value)
+        else:
+            settings.remove("gui/theme")
 
 
 def test_groovy_is_randomized(qapp):  # noqa: ARG001
@@ -107,6 +120,7 @@ def test_structure_delegate_uses_palette_background_in_dark_mode(qapp):
 
     from patentextractor.ui.molecule_table import StructureDelegate
 
+    original_palette = qapp.palette()
     qapp.setPalette(palette_for_theme(THEME_DARK))
     model = QStandardItemModel()
     item = QStandardItem("x")
@@ -126,7 +140,10 @@ def test_structure_delegate_uses_palette_background_in_dark_mode(qapp):
     delegate.paint(painter, opt, model.index(0, 0))
     painter.end()
 
-    bg = qapp.palette().color(QPalette.Base)
-    assert img.pixelColor(0, 0).red() == bg.red()
-    assert img.pixelColor(0, 0).green() == bg.green()
-    assert img.pixelColor(0, 0).blue() == bg.blue()
+    try:
+        bg = qapp.palette().color(QPalette.Base)
+        assert img.pixelColor(0, 0).red() == bg.red()
+        assert img.pixelColor(0, 0).green() == bg.green()
+        assert img.pixelColor(0, 0).blue() == bg.blue()
+    finally:
+        qapp.setPalette(original_palette)

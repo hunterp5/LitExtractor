@@ -39,13 +39,21 @@ def test_pdftotext_shim_reads_pages(tmp_path):
     with pdf_path.open("wb") as handle:
         writer.write(handle)
 
-    sys.modules.pop("pdftotext", None)
-    install_pdftotext_shim()
-    import pdftotext
+    missing = object()
+    previous_module = sys.modules.get("pdftotext", missing)
+    try:
+        sys.modules.pop("pdftotext", None)
+        install_pdftotext_shim()
+        import pdftotext
 
-    with pdf_path.open("rb") as handle:
-        pages = pdftotext.PDF(handle)
-    assert len(pages) == 1
+        with pdf_path.open("rb") as handle:
+            pages = pdftotext.PDF(handle)
+        assert len(pages) == 1
+    finally:
+        if previous_module is missing:
+            sys.modules.pop("pdftotext", None)
+        else:
+            sys.modules["pdftotext"] = previous_module
 
 
 def test_preload_pdftotext_is_idempotent():

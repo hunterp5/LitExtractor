@@ -42,8 +42,18 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_integration)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolate_qsettings(tmp_path_factory):
+    """Keep tests from reading or overwriting the user's application settings."""
+    from PySide6.QtCore import QSettings
+
+    settings_dir = tmp_path_factory.mktemp("qt-settings")
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(settings_dir))
+
+
 @pytest.fixture(scope="session")
-def qapp():
+def qapp(isolate_qsettings):  # noqa: ARG001
     """Single QApplication for the test session."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication

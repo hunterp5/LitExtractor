@@ -22,7 +22,7 @@ import logging
 
 from PySide6.QtCore import QThread, Signal
 
-from ..extraction import extract_from_pdf
+from ..extraction import ExtractionCancelled, extract_from_pdf
 from ..models import ExtractOptions, ExtractionResult
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ class ExtractWorker(QThread):
     progress = Signal(str)
     finished_ok = Signal(object)
     failed = Signal(str)
+    cancelled = Signal()
 
     def __init__(self, pdf_path: str, options: ExtractOptions, parent=None) -> None:
         super().__init__(parent)
@@ -48,6 +49,10 @@ class ExtractWorker(QThread):
                 progress=self.progress.emit,
                 should_cancel=self.isInterruptionRequested,
             )
+        except ExtractionCancelled:
+            logger.info("Extraction cancelled by user")
+            self.cancelled.emit()
+            return
         except Exception as exc:
             logger.exception("Extraction worker failed")
             self.failed.emit(str(exc))

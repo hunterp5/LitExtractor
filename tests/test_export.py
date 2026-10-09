@@ -18,8 +18,11 @@
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QFileDialog, QMessageBox
+
 from patentextractor.extraction import ExtractedMolecule, enrich_molecule
 from patentextractor.export import molecule_export_rows, write_csv, write_sdf, write_smi
+from patentextractor.ui.main_window import MainWindow
 
 
 def _ethanol() -> ExtractedMolecule:
@@ -35,6 +38,15 @@ def test_export_rows_include_identifier():
     assert rows[0]["Formula"] == "C2H6O"
 
 
+def test_export_rows_include_all_merged_pages():
+    molecule = _ethanol()
+    molecule.add_page(3)
+
+    rows = molecule_export_rows([molecule])
+
+    assert rows[0]["Page"] == "1; 3"
+
+
 def test_write_csv_smi_sdf(tmp_path):
     mols = [_ethanol()]
     csv_path = tmp_path / "out.csv"
@@ -48,3 +60,36 @@ def test_write_csv_smi_sdf(tmp_path):
     assert "CCO" in smi_path.read_text(encoding="utf-8")
     assert n == 1
     assert sdf_path.stat().st_size > 0
+
+
+def test_export_failure_is_reported_and_does_not_change_last_dir(
+    qapp, monkeypatch, tmp_path
+):
+    window = MainWindow()
+    window._mol_table.molecule_model().set_molecules([_ethanol()])
+    output_path = tmp_path / "blocked.csv"
+    previous_dir = window._last_dir()
+    errors: list[str] = []
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *_args, **_kwargs: (str(output_path), ""),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "critical",
+        lambda _parent, _title, message: errors.append(message),
+    )
+
+    def fail_to_write(_path, _molecules):
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr("patentextractor.ui.main_window.write_csv", fail_to_write)
+    window.export_csv()
+
+    assert len(errors) == 1
+    assert str(output_path) in errors[0]
+    assert "permission denied" in errors[0]
+    assert window._last_dir() == previous_dir
+    window.close()

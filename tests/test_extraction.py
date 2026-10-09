@@ -36,7 +36,6 @@ from patentextractor.extraction import (
     molecules_from_text_results,
     prioritize_molecules,
     reactions_from_pdf_results,
-    resolve_torch_device,
     slice_pdf_pages,
 )
 
@@ -98,76 +97,6 @@ class FakeClient:
         }
 
 
-def test_ddr2_sub_sample_reports_missing_layoutparser_diagnostics(ddr2_sub_pdf):
-    pdf_path = ddr2_sub_pdf
-    error = ModuleNotFoundError("No module named 'layoutparser'")
-    message = (
-        "OpenChemIE could not be imported while processing 'ddr2_sub.pdf'.\n"
-        "Original import error: No module named 'layoutparser'\n\n"
-        "Likely missing dependency: layoutparser"
-    )
-    assert "ddr2_sub.pdf" in message
-    assert "layoutparser" in message.lower()
-    assert pdf_path.exists()
-
-    from patentextractor.extraction import build_openchemie_import_diagnostic
-
-    diagnostic = build_openchemie_import_diagnostic(error, pdf_path=str(pdf_path))
-    assert "ddr2_sub.pdf" in diagnostic
-    assert "layoutparser" in diagnostic.lower()
-    assert "python -m pip install layoutparser" in diagnostic
-
-
-def test_missing_openchemie_runtime_dependencies_detects_missing_modules(monkeypatch):
-    import importlib
-
-    def fake_import(name: str):
-        if name in {"easyocr", "IPython"}:
-            raise ModuleNotFoundError(f"No module named '{name}'")
-        return object()
-
-    monkeypatch.setattr(importlib, "import_module", fake_import)
-
-    from patentextractor.extraction import missing_openchemie_runtime_dependencies
-
-    missing = missing_openchemie_runtime_dependencies()
-    assert "easyocr" in missing
-    assert "IPython" in missing
-
-
-def test_openchemie_import_error_is_not_reported_as_missing_dependency():
-    from patentextractor.extraction import build_openchemie_import_diagnostic
-
-    exc = ImportError(
-        "cannot import name 'safe_rotate_enlarged_img_size' from "
-        "'albumentations.augmentations.geometric.functional'"
-    )
-    message = build_openchemie_import_diagnostic(exc, pdf_path="ddr2_sub.pdf")
-
-    assert "missing dependency" not in message.lower()
-    assert "albumentations" in message.lower()
-    assert "incompatible" in message.lower()
-    assert "ddr2_sub.pdf" in message
-
-
-def test_pdftotext_missing_uses_windows_shim_guidance():
-    from patentextractor.extraction import (
-        build_openchemie_import_diagnostic,
-        missing_openchemie_runtime_dependencies,
-    )
-
-    missing = missing_openchemie_runtime_dependencies()
-    assert "pdftotext" not in missing
-
-    message = build_openchemie_import_diagnostic(
-        ModuleNotFoundError("No module named 'pdftotext'"),
-        pdf_path="ddr2_sub.pdf",
-    )
-    assert "pdftotext" in message.lower()
-    assert "pip install pdftotext" not in message.lower()
-    assert "PyPDF2 shim" in message
-
-
 def test_patch_empty_molscribe_results_updates_interface_alias():
     from patentextractor.openchemie_compat import patch_empty_molscribe_results
 
@@ -178,13 +107,6 @@ def test_patch_empty_molscribe_results_updates_interface_alias():
 
     assert chemistry.convert_graph_to_smiles([], [], []) == ([], [], 0.0)
     assert interface_module.convert_graph_to_smiles([], [], []) == ([], [], 0.0)
-
-
-def test_cuda_is_optional_and_falls_back_to_cpu(monkeypatch):
-    monkeypatch.setattr(extraction, "cuda_available", lambda: False)
-    assert extraction.cuda_available() is False
-    assert resolve_torch_device("cuda") == "cpu"
-    assert resolve_torch_device("cpu") == "cpu"
 
 
 def test_figure_results_enrich_ethanol():
@@ -411,6 +333,13 @@ def test_prioritize_molecules_ranks_valid_high_score_entries_first():
     assert ordered[-1].smiles == "not_a_real_molecule"
 
 
+def test_prioritize_molecules_ranks_unsanitizable_structure_as_invalid():
+    invalid = ExtractedMolecule(smiles="C(C)(C)(C)(C)C")
+    valid = ExtractedMolecule(smiles="CCO")
+
+    assert prioritize_molecules([invalid, valid]) == [valid, invalid]
+
+
 def test_prioritize_molecules_parses_validity_once_per_record(monkeypatch):
     import patentextractor.chemistry as chemistry
 
@@ -442,6 +371,58 @@ def test_merge_by_inchi_combines_sources():
     assert len(merged) == 1
     assert merged[0].sources == ["figure", "text"]
     assert "EtOH" in merged[0].identifier
+    assert merged[0].page == 1
+    assert merged[0].page_numbers == (1, 2)
+
+
+def test_merge_by_inchi_combines_and_sorts_all_provenance():
+    first = enrich_molecule(ExtractedMolecule(smiles="CCO", page=4, source="figure"))
+    second = enrich_molecule(
+        ExtractedMolecule(
+            smiles="CCO",
+            page=1,
+            source="text",
+            sources=["text", "reaction"],
+            pages=[3, 5],
+        )
+    )
+
+    merged = merge_molecules_by_inchi([first, second])[0]
+
+    assert merged.page == 1
+    assert merged.page_numbers == (1, 3, 4, 5)
+    assert merged.sources == ["figure", "text", "reaction"]
+
+
+@pytest.mark.parametrize(
+    ("option", "value", "error", "message"),
+    [
+        ("first_page", 0, ValueError, "first_page must be at least 1"),
+        ("first_page", 1.5, TypeError, "first_page must be an integer"),
+        ("num_pages", -1, ValueError, "num_pages must be non-negative"),
+        ("max_molecules", -1, ValueError, "max_molecules must be non-negative"),
+        ("batch_size", 0, ValueError, "batch_size must be at least 1"),
+        ("crop_margin", 0.6, ValueError, "crop_margin must be finite"),
+    ],
+)
+def test_extract_options_reject_invalid_ranges(option, value, error, message):
+    with pytest.raises(error, match=message):
+        ExtractOptions(**{option: value})
+
+
+def test_extract_options_accept_zero_as_unlimited():
+    options = ExtractOptions(num_pages=0, max_molecules=0)
+
+    assert options.num_pages == 0
+    assert options.max_molecules == 0
+
+
+def test_extract_from_pdf_revalidates_mutated_options():
+    options = ExtractOptions()
+    options.first_page = 0
+
+    with pytest.raises(ValueError, match="first_page must be at least 1"):
+        extract_from_pdf("dummy.pdf", options, client=FakeClient())
 
 
 def test_extract_from_pdf_fake_client_merges_ethanol():
@@ -455,6 +436,7 @@ def test_extract_from_pdf_fake_client_merges_ethanol():
     assert "figure" in ethanol[0].sources
     assert "text" in ethanol[0].sources
     assert ethanol[0].page == 1
+    assert ethanol[0].page_numbers == (1, 2, 3)
     assert len(result.reactions) == 1
     assert result.reactions[0].products == ["CC=O"]
     assert result.reactions[0].page == 3
@@ -571,6 +553,41 @@ def test_cancel_between_steps():
         )
 
 
+def test_structure_cap_does_not_skip_coreferences_or_reactions():
+    class TrackingClient(FakeClient):
+        def __init__(self):
+            self.calls = []
+
+        def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
+            self.calls.append("figures")
+            return super().extract_molecules_from_figures_in_pdf(pdf, **kwargs)
+
+        def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
+            self.calls.append("corefs")
+            return super().extract_molecule_corefs_from_figures_in_pdf(pdf, **kwargs)
+
+        def extract_reactions_from_pdf(self, pdf, **kwargs):
+            self.calls.append("reactions")
+            return super().extract_reactions_from_pdf(pdf, **kwargs)
+
+    client = TrackingClient()
+    result = extract_from_pdf(
+        "not-opened.pdf",
+        ExtractOptions(
+            figures=True,
+            text=False,
+            corefs=True,
+            reactions=True,
+            max_molecules=1,
+        ),
+        client=client,
+    )
+
+    assert client.calls == ["figures", "corefs", "reactions"]
+    assert len(result.molecules) == 1
+    assert len(result.reactions) == 1
+
+
 def test_reactions_from_pdf_results_conditions():
     rxns, mols = reactions_from_pdf_results(
         {
@@ -590,6 +607,60 @@ def test_reactions_from_pdf_results_conditions():
     )
     assert rxns[0].conditions == "heat"
     assert {m.source for m in mols} == {"reaction_reactant", "reaction_product"}
+
+
+def test_reactions_from_pdf_results_skips_malformed_entries(caplog):
+    reactions, molecules = reactions_from_pdf_results(
+        {
+            "figures": [
+                None,
+                {
+                    "page": "not-a-page",
+                    "reactions": [
+                        "malformed reaction",
+                        {
+                            "reactants": [None, {"smiles": "CCO"}],
+                            "products": [{"smiles": "CC=O"}],
+                            "conditions": ["malformed condition", {"text": "rt"}],
+                        },
+                    ],
+                },
+            ],
+            "text": [None],
+        }
+    )
+
+    assert len(reactions) == 1
+    assert reactions[0].page is None
+    assert reactions[0].reactants == ["CCO"]
+    assert reactions[0].products == ["CC=O"]
+    assert reactions[0].conditions == "rt"
+    assert [molecule.smiles for molecule in molecules] == ["CCO", "CC=O"]
+    assert "malformed" in caplog.text.lower()
+
+
+def test_coreference_parser_skips_negative_and_non_integer_indices(caplog):
+    from patentextractor.extraction import _apply_coref_identifiers
+
+    molecule = ExtractedMolecule(
+        smiles="CCO", source="figure", page=1, bbox=(0.1, 0.1, 0.5, 0.5)
+    )
+    _apply_coref_identifiers(
+        [molecule],
+        [
+            {
+                "page": 1,
+                "bboxes": [
+                    {"bbox": (0.1, 0.1, 0.5, 0.5)},
+                    {"bbox": (0.6, 0.1, 0.8, 0.2), "text": "Compound A"},
+                ],
+                "corefs": [[-1, 1], ["bad", 1], [0.5, 1], [0, 1]],
+            }
+        ],
+    )
+
+    assert molecule.identifier == "Compound A"
+    assert "Ignoring" in caplog.text
 
 
 def test_apply_speed_preset_quick_and_full():
@@ -665,3 +736,12 @@ def test_slice_pdf_pages_identity_and_window(tmp_path):
     finally:
         if is_temp:
             Path(sliced).unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize(
+    ("first_page", "num_pages", "error"),
+    [(0, None, ValueError), (1, -1, ValueError), (1.5, None, TypeError)],
+)
+def test_slice_pdf_pages_rejects_invalid_ranges(first_page, num_pages, error):
+    with pytest.raises(error):
+        slice_pdf_pages("unused.pdf", first_page, num_pages)

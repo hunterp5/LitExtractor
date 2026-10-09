@@ -90,11 +90,26 @@ def enrich_molecule(mol_rec: ExtractedMolecule) -> ExtractedMolecule:
 
 
 def _molecule_is_valid(rec: ExtractedMolecule) -> bool:
-    """True when a molecule record has a parseable structure to present to users."""
+    """True when at least one structure representation passes RDKit sanitization."""
     if not rec.smiles and not rec.molfile:
         return False
     mol = parse_mol(smiles=rec.smiles, molfile=rec.molfile)
-    return mol is not None
+    if mol is None:
+        return False
+    try:
+        Chem.SanitizeMol(Chem.Mol(mol))
+        return True
+    except Exception:
+        logger.debug("Parsed molecule did not pass sanitization", exc_info=True)
+
+    # parse_mol prefers a parseable molfile, including unsanitized blocks. If that
+    # block is invalid but the SMILES is valid, still recognize the valid representation.
+    if rec.smiles:
+        try:
+            return Chem.MolFromSmiles(rec.smiles) is not None
+        except Exception:
+            logger.debug("SMILES validation failed", exc_info=True)
+    return False
 
 
 def molecule_quality_score(rec: ExtractedMolecule) -> float:
@@ -128,7 +143,7 @@ def prioritize_molecules(molecules: list[ExtractedMolecule]) -> list[ExtractedMo
         key = (
             0 if valid else 1,
             -_quality_score_for_validity(rec, valid),
-            rec.page if rec.page is not None else 1_000_000,
+            rec.page_numbers[0] if rec.page_numbers else 1_000_000,
             str(rec.smiles or rec.molfile or rec.identifier or ""),
         )
         ranked.append((key, rec))

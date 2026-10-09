@@ -88,4 +88,53 @@ def test_manual_checkbox_defaults_are_used(qapp):  # noqa: ARG001
 def test_structure_pixmap_tolerates_bad_valence(qapp):  # noqa: ARG001
     rec = ExtractedMolecule(smiles="C(C)(C)(C)(C)C")
     pix = render_structure_pixmap(rec)
-    assert pix is not None
+    assert not pix.isNull()
+
+
+def test_close_during_extraction_waits_for_worker(qapp):
+    class RunningWorker:
+        running = True
+        interruption_requested = False
+
+        def isRunning(self):
+            return self.running
+
+        def requestInterruption(self):
+            self.interruption_requested = True
+
+    window = MainWindow()
+    worker = RunningWorker()
+    window._worker = worker
+    window.show()
+
+    assert window.close() is False
+    assert window.isVisible()
+    assert worker.interruption_requested
+    assert window._close_after_worker
+
+    worker.running = False
+    window._on_worker_thread_finished()
+
+    assert not window.isVisible()
+
+
+def test_worker_reports_cancellation_without_emitting_failure(qapp, monkeypatch):  # noqa: ARG001
+    from PySide6.QtTest import QSignalSpy
+
+    import patentextractor.workers.extract_worker as extract_worker
+    from patentextractor.extraction import ExtractionCancelled
+    from patentextractor.models import ExtractOptions
+
+    def cancel_extraction(*_args, **_kwargs):
+        raise ExtractionCancelled("Extraction cancelled.")
+
+    monkeypatch.setattr(extract_worker, "extract_from_pdf", cancel_extraction)
+    worker = extract_worker.ExtractWorker("unused.pdf", ExtractOptions())
+    cancelled = QSignalSpy(worker.cancelled)
+    failed = QSignalSpy(worker.failed)
+
+    worker.start()
+    assert worker.wait(5000)
+
+    assert cancelled.count() == 1
+    assert failed.count() == 0

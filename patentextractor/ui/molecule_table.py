@@ -132,7 +132,7 @@ class MoleculeTableModel(QAbstractTableModel):
         if col == 3:
             return rec.identifier
         if col == 4:
-            return "" if rec.page is None else str(rec.page)
+            return "; ".join(str(page) for page in rec.page_numbers)
         if col == 5:
             return "; ".join(rec.sources) if rec.sources else rec.source
         if col == 6:
