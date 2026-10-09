@@ -9,6 +9,7 @@ PatentExtractor is a Python desktop application for extracting chemical structur
 - Keep dependencies flowing toward domain logic: domain modules must not import UI code, and extraction orchestration must not depend on UI. Avoid circular imports and import heavy model/runtime packages lazily so the GUI can start when optional extraction dependencies are unavailable.
 - Prefer existing abstractions and the standard library over adding dependencies or frameworks for small tasks. Add caches only when profiling justifies them and the cache key/invalidation rules are explicit.
 - Keep compatibility work narrow and reversible. Do not add process-wide monkeypatches or global behavior changes where a scoped adapter can preserve upstream behavior elsewhere.
+- Keep user-configurable molecule-box expansion separate from the fixed parent-layout context margin; they apply at different crop stages. Molecule expansion defaults to 0%.
 
 ## General coding practices
 - Support Python 3.10 and newer. Add type hints to public functions and non-obvious interfaces; use descriptive names and straightforward control flow.

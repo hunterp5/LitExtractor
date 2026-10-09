@@ -449,6 +449,8 @@ def test_extract_from_pdf_uses_selected_margin_for_openchemie_crop_and_resets_it
 
     from patentextractor.openchemie_compat import _clean_bbox_output_with_context
 
+    assert ExtractOptions().crop_margin == 0.0
+
     class CropMarginClient(FakeClient):
         def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
             del pdf, kwargs
@@ -481,7 +483,7 @@ def test_extract_from_pdf_uses_selected_margin_for_openchemie_crop_and_resets_it
         [[{"category": "[Mol]", "bbox": (0.25, 0.25, 0.75, 0.75)}]],
     )
     assert default_figure
-    assert default_crops[0].shape == (68, 68, 3)
+    assert default_crops[0].shape == (50, 50, 3)
 
 
 def test_extract_from_pdf_reports_global_page_for_sliced_pdf(tmp_path):

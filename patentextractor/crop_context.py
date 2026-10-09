@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-DEFAULT_MOLECULE_CROP_MARGIN = 0.18
+DEFAULT_MOLECULE_CROP_MARGIN = 0.0
 DEFAULT_LAYOUT_CONTEXT_MARGIN = 0.08
 
 _molecule_crop_margin: ContextVar[float] = ContextVar(
