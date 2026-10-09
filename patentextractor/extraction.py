@@ -30,6 +30,8 @@ from typing import Any, Callable, Protocol
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
 
+from .crop_context import DEFAULT_MOLECULE_CROP_MARGIN, use_molecule_crop_margin
+
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str], None]
@@ -92,7 +94,7 @@ class ExtractOptions:
     max_molecules: int | None = None
     batch_size: int = 16
     device: str = "cpu"
-    crop_margin: float = 0.18
+    crop_margin: float = DEFAULT_MOLECULE_CROP_MARGIN
 
 
 SPEED_PRESETS: dict[str, dict[str, Any]] = {
@@ -440,12 +442,13 @@ def _as_bbox(raw: Any) -> tuple[float, ...] | None:
 
 
 def _expand_bbox_for_crop(
-    bbox: tuple[float, ...] | None, margin_fraction: float = 0.18
+    bbox: tuple[float, ...] | None,
+    margin_fraction: float = DEFAULT_MOLECULE_CROP_MARGIN,
 ) -> tuple[float, ...] | None:
-    """Expand the original detected crop by a percentage in every direction.
+    """Expand a normalized molecule box by a fraction on each side.
 
-    The requested context is taken from the source image and clipped only where
-    the source image itself ends; no synthetic pixels are introduced.
+    Cropping later uses only source-image pixels and clips at image bounds; this
+    function itself returns the expanded, potentially out-of-bounds coordinates.
     """
     if bbox is None or len(bbox) < 4:
         return None
@@ -534,7 +537,7 @@ def _join_text(value: Any) -> str:
 
 
 def molecules_from_figure_results(
-    figures: list[dict], *, crop_margin: float = 0.18
+    figures: list[dict], *, crop_margin: float = DEFAULT_MOLECULE_CROP_MARGIN
 ) -> list[ExtractedMolecule]:
     """Flatten OpenChemIE figure-molecule output into records."""
     out: list[ExtractedMolecule] = []
@@ -900,9 +903,10 @@ def extract_from_pdf(
             _check_cancel()
             _progress("Extracting molecules from figures…")
             try:
-                figures = _normalize_openchemie_pages(
-                    client.extract_molecules_from_figures_in_pdf(work_pdf, **kwargs)
-                )
+                with use_molecule_crop_margin(options.crop_margin):
+                    figures = _normalize_openchemie_pages(
+                        client.extract_molecules_from_figures_in_pdf(work_pdf, **kwargs)
+                    )
                 molecules.extend(molecules_from_figure_results(figures, crop_margin=options.crop_margin))
                 molecules = _trim(molecules, warnings)
             except ExtractionCancelled:

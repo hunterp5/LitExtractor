@@ -26,6 +26,11 @@ import uuid
 from typing import Any
 from urllib.parse import urlparse
 
+from .crop_context import (
+    DEFAULT_LAYOUT_CONTEXT_MARGIN,
+    current_molecule_crop_margin,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -414,13 +419,18 @@ def patch_empty_molscribe_results() -> None:
     interface_module.convert_graph_to_smiles = _safe_convert_graph_to_smiles
 
 
-def _clean_bbox_output_with_context(figures: Any, bboxes: Any, margin_fraction: float = 0.18) -> tuple[list[dict], list[Any], list[dict]]:
+def _clean_bbox_output_with_context(
+    figures: Any,
+    bboxes: Any,
+    margin_fraction: float | None = None,
+) -> tuple[list[dict], list[Any], list[dict]]:
     """Crop molecule detections with real context pixels from the source figure.
 
     OpenChemIE's bundled implementation slices exactly at each MolDetect box, which
     can remove edge atoms before MolScribe sees the structure. Expand each normalized
     detector box first; clamp only to the source image's actual bounds and never
-    synthesize border pixels.
+    synthesize border pixels. The active extraction option supplies the margin; direct
+    calls without an explicit margin use the shared default.
     """
     import math
 
@@ -429,6 +439,9 @@ def _clean_bbox_output_with_context(figures: Any, bboxes: Any, margin_fraction: 
     results: list[dict] = []
     cropped: list[Any] = []
     references: list[dict] = []
+    if margin_fraction is None:
+        margin_fraction = current_molecule_crop_margin()
+    margin_fraction = max(0.0, float(margin_fraction))
     for index, output in enumerate(bboxes):
         if index >= len(figures):
             break
@@ -482,8 +495,16 @@ def patch_openchemie_molecule_crops() -> None:
     interface_module.clean_bbox_output = _clean_bbox_output_with_context
 
 
-def _layout_with_source_context(blocks: Any, source_image: Any, margin_fraction: float = 0.08) -> Any:
-    """Expand layout regions before OpenChemIE slices them from the rendered page."""
+def _layout_with_source_context(
+    blocks: Any,
+    source_image: Any,
+    margin_fraction: float = DEFAULT_LAYOUT_CONTEXT_MARGIN,
+) -> Any:
+    """Expand parent layout regions before figure/table crops are made.
+
+    This fixed page-context margin is intentionally separate from the user-selected
+    molecule margin, which is applied later inside each expanded figure crop.
+    """
     import math
 
     import numpy as np

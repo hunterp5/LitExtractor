@@ -72,6 +72,8 @@ or `patentextractor` after an editable install.
 5. Inspect the Molecules / Reactions tabs and the detail pane
 6. **File → Export** CSV, SDF, or SMILES
 
+Crop expansion adds the selected percentage on each side of a molecule detection box (18% by default). A separate fixed 8% context margin is applied earlier to parent figure regions so layout detection does not discard page pixels. Both crop stages use real source pixels and clip at image boundaries.
+
 **Settings → GUI** is the same theme menu as MolManager (Light, Dark, Groovy, custom colors). Structure size and fonts are under Settings as well.
 
 ---

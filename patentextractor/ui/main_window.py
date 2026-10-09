@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from ..crop_context import DEFAULT_MOLECULE_CROP_MARGIN
 from ..structure_layout import (
     DETAIL_STRUCTURE_HEIGHT,
     DETAIL_STRUCTURE_WIDTH,
@@ -293,7 +294,7 @@ class MainWindow(QMainWindow):
         self._crop_margin_spin.setDecimals(1)
         self._crop_margin_spin.setSingleStep(1.0)
         self._crop_margin_spin.setSuffix("%")
-        self._crop_margin_spin.setValue(18.0)
+        self._crop_margin_spin.setValue(DEFAULT_MOLECULE_CROP_MARGIN * 100.0)
         self._crop_margin_spin.setToolTip(
             "Expand each detection box by this percentage in every direction before cropping."
         )

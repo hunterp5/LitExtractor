@@ -375,7 +375,9 @@ def test_ddr2_edge_structures_extract_end_to_end():
         else Path(__file__).resolve().parents[1] / "samples" / "ddr2.pdf"
     )
     if not pdf_path.is_file():
-        pytest.skip("Set PATENTEXTRACTOR_DDR2_SAMPLE to a local DDR2 PDF to run this integration test.")
+        pytest.skip(
+            "Set PATENTEXTRACTOR_DDR2_SAMPLE to a local DDR2 PDF to run this integration test."
+        )
     result = extract_from_pdf(
         str(pdf_path),
         ExtractOptions(
@@ -438,6 +440,49 @@ def test_extract_from_pdf_fake_client_merges_ethanol():
     assert len(result.reactions) == 1
     assert result.reactions[0].products == ["CC=O"]
     assert result.reactions[0].page == 3
+
+
+def test_extract_from_pdf_uses_selected_margin_for_openchemie_crop_and_resets_it():
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    from patentextractor.openchemie_compat import _clean_bbox_output_with_context
+
+    class CropMarginClient(FakeClient):
+        def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
+            del pdf, kwargs
+            image = np.zeros((100, 100, 3), dtype=np.uint8)
+            detections = [[{"category": "[Mol]", "bbox": (0.25, 0.25, 0.75, 0.75), "score": 0.9}]]
+            figures, _, _ = _clean_bbox_output_with_context([image], detections)
+            figures[0]["page"] = 0
+            return figures
+
+    result = extract_from_pdf(
+        "dummy.pdf",
+        ExtractOptions(
+            figures=True,
+            text=False,
+            corefs=False,
+            reactions=False,
+            merge_by_inchi=False,
+            crop_margin=0.20,
+        ),
+        client=CropMarginClient(),
+    )
+
+    assert len(result.molecules) == 1
+    assert result.molecules[0].crop_png is not None
+    with Image.open(io.BytesIO(result.molecules[0].crop_png)) as crop:
+        assert crop.size == (70, 70)
+
+    default_figure, default_crops, _ = _clean_bbox_output_with_context(
+        [np.zeros((100, 100, 3), dtype=np.uint8)],
+        [[{"category": "[Mol]", "bbox": (0.25, 0.25, 0.75, 0.75)}]],
+    )
+    assert default_figure
+    assert default_crops[0].shape == (68, 68, 3)
 
 
 def test_extract_from_pdf_reports_global_page_for_sliced_pdf(tmp_path):
