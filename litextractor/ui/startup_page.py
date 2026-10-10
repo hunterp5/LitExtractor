@@ -43,15 +43,9 @@ class StartupPage(QFrame):
         self.message_label.setWordWrap(True)
         outer_layout.addWidget(self.message_label)
         outer_layout.addStretch(1)
-        self._loading = False
-
-    @property
-    def is_loading(self) -> bool:
-        return self._loading
 
     def set_loading(self, loading: bool, message: str | None = None) -> None:
         """Update the centered idle or extraction-progress message."""
-        self._loading = loading
         if loading:
             self.message_label.setText(message or "Preparing the extraction pipeline…")
         else:

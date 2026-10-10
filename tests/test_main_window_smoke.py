@@ -22,7 +22,8 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QFrame, QGroupBox, QLabel, QMessageBox, QScrollArea
 
-from litextractor.extraction import ExtractedMolecule, ExtractionResult, enrich_molecule
+from litextractor.chemistry import enrich_molecule
+from litextractor.models import ExtractedMolecule, ExtractionResult
 from litextractor.ui.main_window import APP_NAME, MainWindow
 from litextractor.ui.molecule_table import render_structure_pixmap
 from litextractor.ui.theme import THEME_DARK, apply_application_theme, current_theme_name
@@ -47,21 +48,18 @@ def test_startup_welcome_transitions_through_loading_to_results(qapp):
     assert window._results_stack.currentWidget() is window._startup_page
     assert window._startup_page.isVisible()
     assert window._result_tabs.isHidden()
-    assert not window._startup_page.is_loading
     assert window._detail_panel.isHidden()
     assert "Open a patent PDF" in window._startup_page.message_label.text()
     assert window._startup_page.message_label.alignment() == Qt.AlignCenter
     assert window._startup_page.findChildren(QLabel) == [window._startup_page.message_label]
 
-    window._on_extract_progress("Loading OpenChemIE models…")
-    assert window._startup_page.is_loading
+    window._extraction_controller.handle_progress("Loading OpenChemIE models…")
     assert window._startup_page.message_label.text() == "Loading OpenChemIE models…"
 
     molecule = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="EtOH"))
     window._on_extract_finished(
         ExtractionResult(pdf_path="demo.pdf", molecules=[molecule], reactions=[])
     )
-    assert not window._startup_page.is_loading
     assert window._results_stack.currentWidget() is window._result_tabs
     assert not window._detail_panel.isHidden()
     window.close()
@@ -143,7 +141,7 @@ def test_extractions_create_separate_tabs_and_export_uses_active_table(
     ] == [table_font_pt, table_font_pt]
 
     window._result_tabs.setCurrentIndex(0)
-    assert window._result is first_result
+    assert window._active_result_tab.result is first_result
     window.export_csv()
     assert exported == [first_molecule]
     window.close()
@@ -239,7 +237,7 @@ def test_side_panels_have_fixed_widths_and_options_are_grouped(qapp):  # noqa: A
     central_layout = window.centralWidget().layout()
     assert central_layout.count() == 3
     assert central_layout.itemAt(0).widget() is window._extract_panel
-    assert central_layout.itemAt(1).widget() is window._tabs
+    assert central_layout.itemAt(1).widget() is window._results_stack
     assert central_layout.itemAt(2).widget() is window._detail_panel
     assert window._extract_panel.minimumWidth() == window._extract_panel.maximumWidth()
     assert window._detail_panel.minimumWidth() == 420
@@ -342,17 +340,18 @@ def test_close_during_extraction_waits_for_worker(qapp):
             self.interruption_requested = True
 
     window = MainWindow()
+    controller = window._extraction_controller
     worker = RunningWorker()
-    window._worker = worker
+    controller.worker = worker
     window.show()
 
     assert window.close() is False
     assert window.isVisible()
     assert worker.interruption_requested
-    assert window._close_after_worker
+    assert controller.close_after_worker
 
     worker.running = False
-    window._on_worker_thread_finished()
+    controller.handle_worker_thread_finished()
 
     assert not window.isVisible()
 

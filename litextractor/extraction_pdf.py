@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import tempfile
-from numbers import Integral
 
 from .extraction_errors import ExtractorUnavailableError
 from .models import ExtractedMolecule, ExtractedReaction
@@ -30,18 +29,6 @@ def slice_pdf_pages(pdf_path: str, first_page: int, num_pages: int | None) -> tu
     ``first_page`` is 1-based. A zero ``num_pages`` means process through the end.
     When the window starts at page 1, the original path is returned unchanged.
     """
-    if isinstance(first_page, bool) or not isinstance(first_page, Integral):
-        raise TypeError("first_page must be an integer")
-    if first_page < 1:
-        raise ValueError("first_page must be at least 1")
-    if num_pages is not None:
-        if isinstance(num_pages, bool) or not isinstance(num_pages, Integral):
-            raise TypeError("num_pages must be a non-negative integer or None")
-        if num_pages < 0:
-            raise ValueError("num_pages must be non-negative; use 0 for unlimited")
-
-    first_page = int(first_page)
-    num_pages = None if num_pages is None else int(num_pages)
     if first_page == 1:
         return pdf_path, 0, False
 

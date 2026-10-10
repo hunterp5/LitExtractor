@@ -24,7 +24,9 @@ import threading
 import pytest
 
 from litextractor.cancellation import cancel_on_model_forward
-from litextractor.extraction import ExtractionCancelled, ExtractOptions, extract_from_pdf
+from litextractor.extraction import extract_from_pdf
+from litextractor.extraction_errors import ExtractionCancelled
+from litextractor.models import ExtractOptions
 
 torch = pytest.importorskip("torch")
 
@@ -127,7 +129,7 @@ def test_molscribe_conversion_runs_in_process_and_stops_between_molecules(monkey
     import multiprocessing
 
     chemistry = pytest.importorskip("molscribe.chemistry")
-    from litextractor.openchemie_compat import patch_empty_molscribe_results
+    from litextractor.compat_figures import patch_empty_molscribe_results
 
     converted: list[tuple] = []
     cancelled = False
@@ -163,7 +165,7 @@ def test_molscribe_conversion_runs_in_process_and_stops_between_molecules(monkey
 
 def test_pdfminer_page_parsing_checks_for_cancellation(monkeypatch):
     high_level = pytest.importorskip("pdfminer.high_level")
-    from litextractor.openchemie_compat import patch_pdfminer_cancellation
+    from litextractor.compat_figures import patch_pdfminer_cancellation
 
     parsed: list[str] = []
     monkeypatch.setattr(high_level, "extract_pages", lambda pdf, **_kw: parsed.append(pdf) or [])

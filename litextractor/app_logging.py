@@ -31,13 +31,6 @@ _LOG_FILE_NAME = "litextractor.log"
 
 logger = logging.getLogger(__name__)
 
-_active_log_file: Path | None = None
-
-
-def active_log_file() -> Path | None:
-    """Path to the session log file, if file logging was configured."""
-    return _active_log_file
-
 
 def default_log_dir() -> Path:
     """Platform user-data directory for LitExtractor log files."""
@@ -57,7 +50,6 @@ def default_log_dir() -> Path:
 
 def configure_app_logging() -> Path | None:
     """Configure root logging: console always; rotating file under the user log dir."""
-    global _active_log_file
     level_name = (os.environ.get("LITEXTRACTOR_LOG_LEVEL") or "INFO").strip().upper()
     level = getattr(logging, level_name, logging.INFO)
     root = logging.getLogger()
@@ -87,7 +79,6 @@ def configure_app_logging() -> Path | None:
         file_handler.setFormatter(formatter)
         file_handler.setLevel(level)
         root.addHandler(file_handler)
-        _active_log_file = log_path
         return log_path
     except OSError:
         logger.warning("Could not attach file log handler", exc_info=True)

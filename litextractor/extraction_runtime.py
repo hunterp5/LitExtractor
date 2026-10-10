@@ -28,14 +28,6 @@ from .model_runtime import get_cached_openchemie_client
 
 logger = logging.getLogger(__name__)
 
-__all__ = [
-    "build_openchemie_import_diagnostic",
-    "cuda_available",
-    "load_openchemie",
-    "missing_openchemie_runtime_dependencies",
-    "resolve_torch_device",
-]
-
 
 def cuda_available() -> bool:
     """Return True only when torch has a working CUDA runtime and at least one GPU."""
@@ -185,7 +177,8 @@ def load_openchemie(device: str = "cpu") -> Any:
         )
 
     def create_client() -> Any:
-        from .openchemie_compat import configure_openchemie_client, prepare_openchemie_imports
+        from .compat_pdf_text import configure_openchemie_client
+        from .openchemie_compat import prepare_openchemie_imports
 
         missing = missing_openchemie_runtime_dependencies()
         if missing:

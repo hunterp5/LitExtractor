@@ -20,14 +20,12 @@ import sys
 
 import pytest
 
-from litextractor.openchemie_compat import (
-    dropbox_direct_url,
+from litextractor.compat_pdf_text import (
     install_pdftotext_shim,
-    looks_like_html,
     paragraphs_from_page_text,
     preload_pdftotext,
-    safe_http_cache_filename,
 )
+from litextractor.http_weights import dropbox_direct_url, looks_like_html, safe_http_cache_filename
 
 
 def test_pdftotext_shim_reads_pages(tmp_path):
@@ -70,7 +68,7 @@ def test_dropbox_cache_filename_strips_query():
 
 
 def test_huggingface_weight_url_for_publaynet():
-    from litextractor.openchemie_compat import huggingface_weight_url
+    from litextractor.http_weights import huggingface_weight_url
 
     url = huggingface_weight_url("publaynet-tf_efficientdet_d1.pth.tar")
     assert url is not None
@@ -93,21 +91,6 @@ def test_looks_like_html(tmp_path):
     assert not looks_like_html(str(bin_file))
 
 
-def test_http_weight_helpers_remain_reexported():
-    from litextractor import http_weights, openchemie_compat
-
-    assert openchemie_compat.LAYOUTPARSER_HF_WEIGHTS is http_weights.LAYOUTPARSER_HF_WEIGHTS
-    assert openchemie_compat.safe_http_cache_filename is http_weights.safe_http_cache_filename
-    assert openchemie_compat.huggingface_weight_url is http_weights.huggingface_weight_url
-    assert openchemie_compat.dropbox_direct_url is http_weights.dropbox_direct_url
-    assert openchemie_compat.looks_like_html is http_weights.looks_like_html
-    assert openchemie_compat.download_url_to_file is http_weights.download_url_to_file
-    assert (
-        openchemie_compat.patch_iopath_http_cache_filenames
-        is http_weights.patch_iopath_http_cache_filenames
-    )
-
-
 def test_paragraphs_from_page_text_splits_sentences():
     blocks = paragraphs_from_page_text("Compound CCO was used. It is ethanol.")
     sentences = [s.strip() for block in blocks for s in block]
@@ -115,7 +98,7 @@ def test_paragraphs_from_page_text_splits_sentences():
 
 
 def test_paragraph_source_disables_text_reactions_explicitly():
-    from litextractor.openchemie_compat import PdfParagraphSource
+    from litextractor.compat_pdf_text import PdfParagraphSource
 
     assert PdfParagraphSource().extract_reactions_from_text() == []
 
@@ -123,7 +106,7 @@ def test_paragraph_source_disables_text_reactions_explicitly():
 def test_torch_load_compatibility_is_scoped_and_idempotent(monkeypatch):
     import torch
 
-    from litextractor.openchemie_compat import (
+    from litextractor.compat_checkpoint import (
         openchemie_checkpoint_loads,
         patch_torch_load_weights_only_default,
     )
@@ -153,7 +136,7 @@ def test_transformers_torch_load_gate_is_scoped(monkeypatch):
     import transformers.modeling_utils as modeling_utils
     import transformers.utils.import_utils as import_utils
 
-    from litextractor.openchemie_compat import (
+    from litextractor.compat_checkpoint import (
         openchemie_checkpoint_loads,
         patch_transformers_torch_load_check,
     )
@@ -180,7 +163,7 @@ def test_transformers_torch_load_gate_is_scoped(monkeypatch):
 def test_moldetect_crop_expansion_uses_real_context_pixels():
     import numpy as np
 
-    from litextractor.openchemie_compat import _clean_bbox_output_with_context
+    from litextractor.compat_figures import _clean_bbox_output_with_context
 
     figure = np.zeros((100, 100, 3), dtype=np.uint8)
     figure[45:55, 82:86] = (255, 0, 0)  # edge atom outside the original x2=0.80 box
@@ -202,7 +185,7 @@ def test_parent_figure_crop_expansion_uses_page_pixels_and_clips_at_page_edge():
     import layoutparser as lp
     import numpy as np
 
-    from litextractor.openchemie_compat import _layout_with_source_context
+    from litextractor.compat_figures import _layout_with_source_context
 
     page = np.zeros((100, 120, 3), dtype=np.uint8)
     page[45:55, 103:108] = (255, 0, 0)
@@ -223,22 +206,6 @@ def test_parent_figure_crop_expansion_uses_page_pixels_and_clips_at_page_edge():
     edge_block = lp.TextBlock(lp.Rectangle(110, 10, 119, 40), type="Figure")
     edge_layout = _layout_with_source_context(lp.Layout([edge_block]), page, margin_fraction=0.5)
     assert edge_layout[0].coordinates == (105, 0, 120, 55)
-
-
-def test_compat_facade_reexports_focused_modules():
-    from litextractor import (
-        compat_checkpoint,
-        compat_figures,
-        compat_pdf_text,
-        openchemie_compat,
-    )
-
-    for module in (compat_checkpoint, compat_figures, compat_pdf_text):
-        for name in vars(module):
-            if name in openchemie_compat.__all__:
-                assert getattr(openchemie_compat, name) is getattr(module, name)
-    for name in openchemie_compat.__all__:
-        assert hasattr(openchemie_compat, name)
 
 
 def test_prepare_openchemie_imports_applies_patches_in_order(monkeypatch):

@@ -43,7 +43,7 @@ dev = [
 ]
 
 [project.scripts]
-litextractor = "litextractor.app:main"
+litextractor = "litextractor.bootstrap:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

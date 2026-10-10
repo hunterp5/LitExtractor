@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from litextractor.extraction import ExtractedMolecule, enrich_molecule
-from litextractor.models import ExtractionResult
+from litextractor.chemistry import enrich_molecule
+from litextractor.models import ExtractedMolecule, ExtractionResult
 from litextractor.export import molecule_export_rows, write_csv, write_sdf, write_smi
 from litextractor.ui.main_window import MainWindow
 

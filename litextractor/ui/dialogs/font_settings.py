@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..qt_widget_utils import make_window_minimizable
-from ..theme import MAX_FONT_PT, MIN_FONT_PT, default_app_font_pt, default_table_font_pt
+from ..theme import DEFAULT_FONT_PT, MAX_FONT_PT, MIN_FONT_PT
 
 
 class FontSettingsDialog(QDialog):
@@ -43,17 +43,15 @@ class FontSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Font")
         self.setMinimumWidth(340)
-        self._default_app_pt = default_app_font_pt()
-        self._default_table_pt = default_table_font_pt()
 
         root = QVBoxLayout(self)
         form = QFormLayout()
 
-        self._app_spin = self._make_spin(current_app_pt, self._default_app_pt)
+        self._app_spin = self._make_spin(current_app_pt)
         self._app_spin.valueChanged.connect(lambda pt: self.app_font_size_previewed.emit(int(pt)))
         form.addRow("Application font size:", self._app_spin)
 
-        self._table_spin = self._make_spin(current_table_pt, self._default_table_pt)
+        self._table_spin = self._make_spin(current_table_pt)
         self._table_spin.valueChanged.connect(
             lambda pt: self.table_font_size_previewed.emit(int(pt))
         )
@@ -75,16 +73,16 @@ class FontSettingsDialog(QDialog):
         make_window_minimizable(self)
 
     @staticmethod
-    def _make_spin(current_pt: int, default_pt: int) -> QSpinBox:
+    def _make_spin(current_pt: int) -> QSpinBox:
         spin = QSpinBox()
         spin.setRange(MIN_FONT_PT, MAX_FONT_PT)
         spin.setSuffix(" pt")
-        spin.setValue(max(MIN_FONT_PT, min(MAX_FONT_PT, int(current_pt or default_pt))))
+        spin.setValue(max(MIN_FONT_PT, min(MAX_FONT_PT, int(current_pt or DEFAULT_FONT_PT))))
         return spin
 
     def _reset_default(self) -> None:
-        self._app_spin.setValue(self._default_app_pt)
-        self._table_spin.setValue(self._default_table_pt)
+        self._app_spin.setValue(DEFAULT_FONT_PT)
+        self._table_spin.setValue(DEFAULT_FONT_PT)
 
     def selected_app_point_size(self) -> int:
         return int(self._app_spin.value())

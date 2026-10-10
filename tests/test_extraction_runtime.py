@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import importlib
 
-from litextractor import extraction, extraction_runtime
+from litextractor import extraction_runtime
 
 
 def test_missing_layoutparser_produces_actionable_diagnostic(ddr2_sub_pdf):
@@ -42,7 +42,11 @@ def test_missing_openchemie_runtime_dependencies_detects_missing_modules(monkeyp
             return None
         return object()
 
+    def unexpected_import(_name: str):
+        raise AssertionError("availability checks must not import runtime packages")
+
     monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
+    monkeypatch.setattr(importlib, "import_module", unexpected_import)
 
     missing = extraction_runtime.missing_openchemie_runtime_dependencies()
 
@@ -86,17 +90,3 @@ def test_cuda_is_optional_and_falls_back_to_cpu(monkeypatch):
     assert extraction_runtime.cuda_available() is False
     assert extraction_runtime.resolve_torch_device("cuda") == "cpu"
     assert extraction_runtime.resolve_torch_device("cpu") == "cpu"
-
-
-def test_extraction_reexports_runtime_helpers():
-    assert extraction.cuda_available is extraction_runtime.cuda_available
-    assert extraction.resolve_torch_device is extraction_runtime.resolve_torch_device
-    assert extraction.load_openchemie is extraction_runtime.load_openchemie
-    assert (
-        extraction.missing_openchemie_runtime_dependencies
-        is extraction_runtime.missing_openchemie_runtime_dependencies
-    )
-    assert (
-        extraction.build_openchemie_import_diagnostic
-        is extraction_runtime.build_openchemie_import_diagnostic
-    )

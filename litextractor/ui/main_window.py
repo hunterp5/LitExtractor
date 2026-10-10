@@ -53,6 +53,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..crop_context import DEFAULT_MOLECULE_CROP_MARGIN
+from ..export import write_csv, write_sdf, write_smi
 from ..structure_layout import (
     DETAIL_STRUCTURE_HEIGHT,
     load_saved_structure_size,
@@ -76,9 +77,6 @@ from .theme import (
     THEME_LIGHT,
     apply_application_font_pt,
     apply_application_theme,
-    current_theme_name,
-    default_app_font_pt,
-    default_table_font_pt,
     detail_panel_stylesheet,
     extract_panel_stylesheet,
     load_saved_app_font_pt,
@@ -92,34 +90,12 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .extraction_result_tab import ExtractionResultTab
-    from ..workers.extract_worker import ExtractWorker
 
 APP_NAME = "LitExtractor"
 _SETTINGS_KEY_LAST_DIR = "files/last_dir"
 
 _EXTRACT_PANEL_WIDTH = 280
 _DETAIL_PANEL_WIDTH = 420
-
-
-def write_csv(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
-    """Import and run CSV export only when the user requests it."""
-    from ..export import write_csv as export_csv_file
-
-    export_csv_file(path, molecules)
-
-
-def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
-    """Import and run SDF export only when the user requests it."""
-    from ..export import write_sdf as export_sdf_file
-
-    return export_sdf_file(path, molecules)
-
-
-def write_smi(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
-    """Import and run SMILES export only when the user requests it."""
-    from ..export import write_smi as export_smiles_file
-
-    export_smiles_file(path, molecules)
 
 
 class MainWindow(QMainWindow):
@@ -130,13 +106,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.resize(1400, 820)
         self._pdf_path: str | None = None
-        self._result: ExtractionResult | None = None
         self._active_result_tab: ExtractionResultTab | None = None
-        self._worker: ExtractWorker | None = None
         self._cuda_probe_started = False
         self._cuda_worker: CudaAvailabilityWorker | None = None
         self._device_selection_touched = False
-        self._close_after_worker = False
         self._app_font_pt = load_saved_app_font_pt()
         apply_application_font_pt(self._app_font_pt)
         self._gui_theme = load_saved_theme_name()
@@ -146,9 +119,6 @@ class MainWindow(QMainWindow):
 
         self._build_menus()
         self._build_central()
-        self.status_label = getattr(
-            self, "_extract_status", QLabel("Ready — open a patent PDF to extract structures.")
-        )
         self._detail_presenter = DetailPanelPresenter(
             detail_structure=self._detail_structure,
             detail_crop=self._detail_crop,
@@ -161,7 +131,7 @@ class MainWindow(QMainWindow):
             result_tabs=self._result_tabs,
             results_stack=self._results_stack,
             startup_page=self._startup_page,
-            on_molecule_selected=self._on_molecule_selected,
+            on_molecule_selected=self._refresh_selected_detail,
         )
         self._extraction_controller = ExtractionController(
             parent=self,
@@ -169,15 +139,10 @@ class MainWindow(QMainWindow):
             extract_button=self._extract_btn,
             cancel_button=self._cancel_btn,
             progress_bar=self._progress,
-            extract_status=self._extract_status,
             status_label=self.status_label,
             result_tabs=self._result_tabs,
             startup_page=self._startup_page,
             results_stack=self._results_stack,
-            get_worker=lambda: self._worker,
-            set_worker=lambda worker: setattr(self, "_worker", worker),
-            get_close_after_worker=lambda: self._close_after_worker,
-            set_close_after_worker=lambda value: setattr(self, "_close_after_worker", value),
         )
         apply_application_theme(QApplication.instance(), self._gui_theme)
         self._set_active_result_tab(None)
@@ -238,7 +203,7 @@ class MainWindow(QMainWindow):
         help_menu.addAction(QAction("&Citations", self, triggered=self.show_citations))
 
     def _sync_theme_menu_checks(self) -> None:
-        name = getattr(self, "_gui_theme", current_theme_name()) or current_theme_name()
+        name = self._gui_theme
         self._act_theme_light.setChecked(name == THEME_LIGHT)
         self._act_theme_dark.setChecked(name == THEME_DARK)
         self._act_theme_groovy.setChecked(name == THEME_GROOVY)
@@ -383,9 +348,9 @@ class MainWindow(QMainWindow):
         self._progress.setVisible(False)
         layout.addWidget(self._progress)
 
-        self._extract_status = QLabel("")
-        self._extract_status.setWordWrap(True)
-        layout.addWidget(self._extract_status)
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
         layout.addStretch(1)
         self._extract_panel = panel
         return panel
@@ -402,8 +367,6 @@ class MainWindow(QMainWindow):
         self._results_stack.addWidget(self._startup_page)
         self._results_stack.addWidget(self._result_tabs)
         self._results_stack.setCurrentWidget(self._startup_page)
-        # Keep the historic central-results attribute pointing at the stack.
-        self._tabs = self._results_stack
         return self._results_stack
 
     def _build_detail_panel(self) -> QFrame:
@@ -497,18 +460,11 @@ class MainWindow(QMainWindow):
 
     def refresh_theme(self) -> None:
         """Refresh palette-driven component styling after an application theme change."""
-        if not hasattr(self, "_result_tabs"):
-            return
-        extract = getattr(self, "_extract_panel", None)
-        if extract is not None:
-            extract.setStyleSheet(extract_panel_stylesheet())
-        detail = getattr(self, "_detail_panel", None)
-        if detail is not None:
-            detail.setStyleSheet(detail_panel_stylesheet())
+        self._extract_panel.setStyleSheet(extract_panel_stylesheet())
+        self._detail_panel.setStyleSheet(detail_panel_stylesheet())
+        self._apply_table_font()
         for result_tab in self._result_tab_widgets():
             result_tab.refresh_theme()
-        if getattr(self, "_table_font_pt", None) is not None:
-            self._apply_table_font()
         self.update()
 
     def _set_gui_theme(self, theme: str) -> None:
@@ -517,7 +473,7 @@ class MainWindow(QMainWindow):
         self._gui_theme = theme
         save_theme_name(theme)
         self._sync_theme_menu_checks()
-        apply_application_font_pt(int(self._app_font_pt or default_app_font_pt()))
+        apply_application_font_pt(self._app_font_pt)
 
     def open_structure_settings(self) -> None:
         prev_w, prev_h = structure_width(), structure_height()
@@ -545,8 +501,8 @@ class MainWindow(QMainWindow):
         self._refresh_selected_detail()
 
     def open_font_dialog(self) -> None:
-        prev_app = int(self._app_font_pt or default_app_font_pt())
-        prev_table = int(self._table_font_pt or default_table_font_pt())
+        prev_app = self._app_font_pt
+        prev_table = self._table_font_pt
         dlg = FontSettingsDialog(prev_app, prev_table, self)
         dlg.app_font_size_previewed.connect(self._preview_app_font)
         dlg.table_font_size_previewed.connect(self._preview_table_font)
@@ -713,11 +669,7 @@ class MainWindow(QMainWindow):
         self._extraction_controller.start_worker(
             pdf_path=self._pdf_path,
             options=opts,
-            on_progress=self._on_extract_progress,
             on_finished=self._on_extract_finished,
-            on_failed=self._on_extract_failed,
-            on_cancelled=self._on_extract_cancelled,
-            on_thread_finished=self._on_worker_thread_finished,
         )
 
     def cancel_extraction(self) -> None:
@@ -728,18 +680,9 @@ class MainWindow(QMainWindow):
             return
         super().closeEvent(event)
 
-    def _on_worker_thread_finished(self) -> None:
-        self._extraction_controller.handle_worker_thread_finished()
-
-    def _set_busy(self, busy: bool) -> None:
-        self._extraction_controller.set_busy(busy)
-
-    def _on_extract_progress(self, message: str) -> None:
-        self._extraction_controller.handle_progress(message)
-
     def _on_extract_finished(self, result: object) -> None:
         if not isinstance(result, ExtractionResult):
-            self._on_extract_failed("Unexpected extraction result.")
+            self._extraction_controller.handle_failed("Unexpected extraction result.")
             return
         result_tab = self._results_controller.add_result(
             result, table_font_pt=self._table_font_pt
@@ -759,12 +702,6 @@ class MainWindow(QMainWindow):
             f"{len(result.reactions)} reaction(s).{warn}"
         )
 
-    def _on_extract_failed(self, message: str) -> None:
-        self._extraction_controller.handle_failed(message)
-
-    def _on_extract_cancelled(self) -> None:
-        self._extraction_controller.handle_cancelled()
-
     def _result_tab_widgets(self) -> list[ExtractionResultTab]:
         return self._results_controller.result_tab_widgets()
 
@@ -772,8 +709,6 @@ class MainWindow(QMainWindow):
         result_tab = self._results_controller.active_result_tab(index)
         self._active_result_tab = result_tab
         self._mol_table = result_tab.molecule_table if result_tab is not None else None
-        self._rxn_table = result_tab.reaction_table if result_tab is not None else None
-        self._result = result_tab.result if result_tab is not None else None
         if result_tab is None:
             self._detail_presenter.clear_detail()
             self._detail_panel.hide()
@@ -805,20 +740,8 @@ class MainWindow(QMainWindow):
         self._set_active_result_tab(current_index if current_index >= 0 else None)
         self._refresh_selected_detail()
 
-    def _on_result_tab_selected(self, *_args) -> None:
-        self._refresh_selected_detail()
-
-    def _on_molecule_selected(self, *_args) -> None:
-        self._refresh_selected_detail()
-
-    def _selected_molecule(self) -> ExtractedMolecule | None:
-        return self._detail_presenter.selected_molecule(self._mol_table)
-
-    def _refresh_selected_detail(self) -> None:
+    def _refresh_selected_detail(self, *_args: object) -> None:
         self._detail_presenter.refresh_selected_detail(self._mol_table)
-
-    def _clear_detail(self) -> None:
-        self._detail_presenter.clear_detail()
 
     def _require_molecules(self) -> list[ExtractedMolecule] | None:
         mols = (

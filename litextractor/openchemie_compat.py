@@ -14,9 +14,10 @@
 # You should have received a copy of the GNU General Public License
 # along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Windows-friendly OpenChemIE import and runtime workarounds.
+"""Windows-friendly OpenChemIE import setup.
 
-This module is the stable entry point. The individual workarounds live in focused modules:
+:func:`prepare_openchemie_imports` installs the workarounds that must exist before
+``from openchemie import OpenChemIE``. The individual workarounds live in focused modules:
 
 - :mod:`.compat_checkpoint` — scoped ``torch.load`` / Transformers checkpoint gates
 - :mod:`.compat_pdf_text` — ``pdftotext`` shim, ChemRxnExtractor stub, paragraph source
@@ -30,14 +31,10 @@ import logging
 import os
 
 from .compat_checkpoint import (
-    _allow_legacy_checkpoint_loads,
-    openchemie_checkpoint_loads,
     patch_torch_load_weights_only_default,
     patch_transformers_torch_load_check,
 )
 from .compat_figures import (
-    _clean_bbox_output_with_context,
-    _layout_with_source_context,
     patch_empty_molscribe_results,
     patch_openchemie_figure_fallback,
     patch_openchemie_layout_crop_context,
@@ -45,52 +42,12 @@ from .compat_figures import (
     patch_pdfminer_cancellation,
 )
 from .compat_pdf_text import (
-    PdfParagraphSource,
-    configure_openchemie_client,
     ensure_chemrxnextractor_importable,
-    install_pdftotext_shim,
-    paragraphs_from_page_text,
     preload_pdftotext,
 )
-from .http_weights import (
-    LAYOUTPARSER_HF_WEIGHTS,
-    download_url_to_file,
-    dropbox_direct_url,
-    huggingface_weight_url,
-    looks_like_html,
-    patch_iopath_http_cache_filenames,
-    safe_http_cache_filename,
-)
+from .http_weights import patch_iopath_http_cache_filenames
 
 logger = logging.getLogger(__name__)
-
-__all__ = [
-    "LAYOUTPARSER_HF_WEIGHTS",
-    "PdfParagraphSource",
-    "_allow_legacy_checkpoint_loads",
-    "_clean_bbox_output_with_context",
-    "_layout_with_source_context",
-    "configure_openchemie_client",
-    "download_url_to_file",
-    "dropbox_direct_url",
-    "ensure_chemrxnextractor_importable",
-    "huggingface_weight_url",
-    "install_pdftotext_shim",
-    "looks_like_html",
-    "openchemie_checkpoint_loads",
-    "paragraphs_from_page_text",
-    "patch_empty_molscribe_results",
-    "patch_iopath_http_cache_filenames",
-    "patch_openchemie_figure_fallback",
-    "patch_openchemie_layout_crop_context",
-    "patch_openchemie_molecule_crops",
-    "patch_pdfminer_cancellation",
-    "patch_torch_load_weights_only_default",
-    "patch_transformers_torch_load_check",
-    "prepare_openchemie_imports",
-    "preload_pdftotext",
-    "safe_http_cache_filename",
-]
 
 
 def prepare_openchemie_imports() -> None:

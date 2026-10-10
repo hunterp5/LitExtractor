@@ -75,56 +75,29 @@ def _crop_image_from_bbox(image: Any, bbox: tuple[float, ...] | None) -> Any:
     if image is None or bbox is None or len(bbox) < 4:
         return None
     try:
-        import numpy as np
-    except ImportError:
-        np = None
-
-    try:
-        if hasattr(image, "size") and hasattr(image, "crop"):
+        is_pil = hasattr(image, "size") and hasattr(image, "crop")
+        if is_pil:
             width, height = image.size
-            x0, y0, x1, y1 = [float(value) for value in bbox[:4]]
-            if all(-2.0 <= value <= 2.0 for value in (x0, y0, x1, y1)):
-                left = math.floor(x0 * width)
-                top = math.floor(y0 * height)
-                right = math.ceil(x1 * width)
-                bottom = math.ceil(y1 * height)
-            else:
-                left, top, right, bottom = (
-                    math.floor(x0),
-                    math.floor(y0),
-                    math.ceil(x1),
-                    math.ceil(y1),
-                )
-            left = max(0, min(width, left))
-            top = max(0, min(height, top))
-            right = max(0, min(width, right))
-            bottom = max(0, min(height, bottom))
-            if right <= left or bottom <= top:
-                return None
-            return image.crop((left, top, right, bottom))
-        if np is not None:
+        else:
+            import numpy as np
+
             array = np.asarray(image)
             if array.ndim < 2:
                 return None
             height, width = array.shape[:2]
-            x0, y0, x1, y1 = [float(value) for value in bbox[:4]]
-            if all(-2.0 <= value <= 2.0 for value in (x0, y0, x1, y1)):
-                left = int(np.floor(x0 * width))
-                top = int(np.floor(y0 * height))
-                right = int(np.ceil(x1 * width))
-                bottom = int(np.ceil(y1 * height))
-            else:
-                left = int(np.floor(x0))
-                top = int(np.floor(y0))
-                right = int(np.ceil(x1))
-                bottom = int(np.ceil(y1))
-            left = max(0, min(width, left))
-            top = max(0, min(height, top))
-            right = max(0, min(width, right))
-            bottom = max(0, min(height, bottom))
-            if right <= left or bottom <= top:
-                return None
-            return array[top:bottom, left:right]
+        x0, y0, x1, y1 = [float(value) for value in bbox[:4]]
+        if all(-2.0 <= value <= 2.0 for value in (x0, y0, x1, y1)):
+            x0, x1 = x0 * width, x1 * width
+            y0, y1 = y0 * height, y1 * height
+        left = max(0, min(width, math.floor(x0)))
+        top = max(0, min(height, math.floor(y0)))
+        right = max(0, min(width, math.ceil(x1)))
+        bottom = max(0, min(height, math.ceil(y1)))
+        if right <= left or bottom <= top:
+            return None
+        if is_pil:
+            return image.crop((left, top, right, bottom))
+        return array[top:bottom, left:right]
     except Exception:
         logger.debug("Figure crop extraction failed", exc_info=True)
     return None

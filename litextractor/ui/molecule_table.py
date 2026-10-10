@@ -208,9 +208,6 @@ class MoleculeTableModel(QAbstractTableModel):
         self._pixmaps = [None] * len(self._rows)
         self.endResetModel()
 
-    def clear(self) -> None:
-        self.set_molecules([])
-
 
 class StructureDelegate(QStyledItemDelegate):
     """Paints cached structure pixmap on a white cell, or a placeholder."""

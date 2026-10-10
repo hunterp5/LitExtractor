@@ -14,43 +14,31 @@
 # You should have received a copy of the GNU General Public License
 # along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
-"""OpenChemIE extraction orchestration, PDF slicing, and coreference linking."""
+"""OpenChemIE extraction orchestration and molecule merging."""
 
 from __future__ import annotations
 
 import logging
 import os
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any, Callable, Protocol
 
-from .chemistry import (
-    enrich_molecule,
-    molecule_quality_score,
-    parse_mol,
-    prioritize_molecules,
-)
 from .cancellation import cancel_on_model_forward
+from .chemistry import prioritize_molecules
+from .compat_checkpoint import openchemie_checkpoint_loads
 from .crop_context import use_molecule_crop_margin
+from .extraction_coreference import apply_coref_identifiers
+from .extraction_errors import ExtractionCancelled
+from .extraction_pdf import shift_result_pages, slice_pdf_pages
 from .extraction_results import (
-    _unpack_label,
     molecules_from_figure_results,
     molecules_from_text_results,
     reactions_from_pdf_results,
 )
-from .extraction_coreference import apply_coref_identifiers as _apply_coref_identifiers
-from .extraction_errors import ExtractionCancelled, ExtractorUnavailableError
-from .extraction_runtime import (
-    build_openchemie_import_diagnostic as build_openchemie_import_diagnostic,
-    cuda_available as cuda_available,
-    load_openchemie as load_openchemie,
-    missing_openchemie_runtime_dependencies as missing_openchemie_runtime_dependencies,
-    resolve_torch_device as resolve_torch_device,
-)
-from .extraction_pdf import slice_pdf_pages, shift_result_pages as _shift_pages
+from .extraction_runtime import load_openchemie
 from .model_runtime import openchemie_client_session
 from .models import ExtractOptions, ExtractedMolecule, ExtractedReaction, ExtractionResult
-from .openchemie_compat import openchemie_checkpoint_loads
 
 logger = logging.getLogger(__name__)
 
@@ -62,33 +50,6 @@ def _model_call(should_cancel: Callable[[], bool] | None) -> Iterator[None]:
     """Scope for one OpenChemIE call: legacy checkpoint loading plus prompt cancellation."""
     with openchemie_checkpoint_loads(), cancel_on_model_forward(should_cancel):
         yield
-
-__all__ = [
-    "ExtractOptions",
-    "ExtractedMolecule",
-    "ExtractedReaction",
-    "ExtractionCancelled",
-    "ExtractionResult",
-    "ExtractorUnavailableError",
-    "OpenChemIEClient",
-    "apply_speed_preset",
-    "build_openchemie_import_diagnostic",
-    "cuda_available",
-    "enrich_molecule",
-    "extract_from_pdf",
-    "load_openchemie",
-    "merge_molecules_by_inchi",
-    "missing_openchemie_runtime_dependencies",
-    "molecule_quality_score",
-    "molecules_from_figure_results",
-    "molecules_from_text_results",
-    "parse_mol",
-    "prioritize_molecules",
-    "reactions_from_pdf_results",
-    "resolve_torch_device",
-    "slice_pdf_pages",
-    "_unpack_label",
-]
 
 
 class OpenChemIEClient(Protocol):
@@ -108,47 +69,6 @@ class OpenChemIEClient(Protocol):
 
     def extract_reactions_from_pdf(self, pdf: str, **kwargs: Any) -> dict: ...
 
-
-SPEED_PRESETS: dict[str, dict[str, Any]] = {
-    "quick": {
-        "figures": True,
-        "text": False,
-        "corefs": False,
-        "reactions": False,
-        "first_page": 1,
-        "num_pages": 5,
-        "max_molecules": 50,
-    },
-    "standard": {
-        "figures": True,
-        "text": False,
-        "corefs": False,
-        "reactions": False,
-        "first_page": 1,
-        "num_pages": 15,
-        "max_molecules": 200,
-    },
-    "full": {
-        "figures": True,
-        "text": True,
-        "corefs": False,
-        "reactions": False,
-        "first_page": 1,
-        "num_pages": None,
-        "max_molecules": None,
-    },
-}
-
-
-def apply_speed_preset(name: str, base: ExtractOptions | None = None) -> ExtractOptions:
-    """Return options for a named speed preset (quick / standard / full)."""
-    opts = ExtractOptions() if base is None else ExtractOptions(**vars(base))
-    spec = SPEED_PRESETS.get(name)
-    if spec is None:
-        return opts
-    for key, value in spec.items():
-        setattr(opts, key, value)
-    return opts
 
 
 def merge_molecules_by_inchi(molecules: list[ExtractedMolecule]) -> list[ExtractedMolecule]:
@@ -211,22 +131,16 @@ def extract_from_pdf(
 ) -> ExtractionResult:
     """Run the selected OpenChemIE extractors and return enriched records."""
     options.validate()
-    if client is None:
-        with openchemie_client_session():
-            return _extract_from_pdf(
-                pdf_path,
-                options,
-                client=client,
-                progress=progress,
-                should_cancel=should_cancel,
-            )
-    return _extract_from_pdf(
-        pdf_path,
-        options,
-        client=client,
-        progress=progress,
-        should_cancel=should_cancel,
-    )
+    # The cached client is shared and stateful, so only caller-supplied clients skip the lock.
+    session = openchemie_client_session() if client is None else nullcontext()
+    with session:
+        return _extract_from_pdf(
+            pdf_path,
+            options,
+            client=client,
+            progress=progress,
+            should_cancel=should_cancel,
+        )
 
 
 def _extract_from_pdf(
@@ -237,8 +151,6 @@ def _extract_from_pdf(
     progress: ProgressCallback | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> ExtractionResult:
-    """Implementation shared by cached-client and caller-supplied extraction runs."""
-
     def _progress(message: str) -> None:
         if progress is not None:
             progress(message)
@@ -297,8 +209,6 @@ def _extract_from_pdf(
                         )
                 molecules.extend(molecules_from_figure_results(figures, crop_margin=options.crop_margin))
                 molecules = _trim(molecules, warnings)
-            except ExtractionCancelled:
-                raise
             except Exception as exc:
                 logger.exception("Figure molecule extraction failed")
                 warnings.append(f"Figure extraction failed: {exc}")
@@ -311,8 +221,6 @@ def _extract_from_pdf(
                     pages = client.extract_molecules_from_text_in_pdf(work_pdf, **kwargs)
                 molecules.extend(molecules_from_text_results(pages))
                 molecules = _trim(molecules, warnings)
-            except ExtractionCancelled:
-                raise
             except Exception as exc:
                 logger.exception("Text molecule extraction failed")
                 warnings.append(f"Text extraction failed: {exc}")
@@ -327,9 +235,7 @@ def _extract_from_pdf(
                             work_pdf, **kwargs, molscribe=False, ocr=True
                         )
                     )
-                _apply_coref_identifiers(molecules, corefs)
-            except ExtractionCancelled:
-                raise
+                apply_coref_identifiers(molecules, corefs)
             except Exception as exc:
                 logger.exception("Coreference extraction failed")
                 warnings.append(f"Coreference extraction failed: {exc}")
@@ -346,14 +252,12 @@ def _extract_from_pdf(
                 reactions.extend(rxns)
                 molecules.extend(rxn_mols)
                 molecules = _trim(molecules, warnings)
-            except ExtractionCancelled:
-                raise
             except Exception as exc:
                 logger.exception("Reaction extraction failed")
                 warnings.append(f"Reaction extraction failed: {exc}")
 
         _check_cancel()
-        _shift_pages(molecules, reactions, page_offset)
+        shift_result_pages(molecules, reactions, page_offset)
         if options.merge_by_inchi:
             molecules = merge_molecules_by_inchi(molecules)
         molecules = prioritize_molecules(molecules)

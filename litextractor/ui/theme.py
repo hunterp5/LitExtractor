@@ -44,9 +44,6 @@ _FONT_THEME_FILTER: _ThemeWindowFilter | None = None
 MIN_FONT_PT = 8
 MAX_FONT_PT = 32
 DEFAULT_FONT_PT = 10
-# Backwards-compatible aliases (table-specific names used elsewhere).
-MIN_TABLE_FONT_PT = MIN_FONT_PT
-MAX_TABLE_FONT_PT = MAX_FONT_PT
 
 
 def current_theme_name() -> str:
@@ -56,17 +53,8 @@ def current_theme_name() -> str:
 
 def _normalize_theme_name(theme: str | None) -> str:
     """Normalize stored values into the closed set of supported theme names."""
-    name = str(theme or "").strip().lower().replace("-", "_")
-    aliases = {
-        "light": THEME_LIGHT,
-        "light_mode": THEME_LIGHT,
-        "dark": THEME_DARK,
-        "dark_mode": THEME_DARK,
-        "groovy": THEME_GROOVY,
-        "groovy_mode": THEME_GROOVY,
-        "psychedelic": THEME_GROOVY,
-    }
-    return aliases.get(name, THEME_LIGHT)
+    name = str(theme or "").strip().lower()
+    return name if name in THEME_NAMES else THEME_LIGHT
 
 
 def load_saved_theme_name() -> str:
@@ -91,16 +79,6 @@ def _clamp_font_pt(pt: int) -> int:
     return max(MIN_FONT_PT, min(MAX_FONT_PT, int(pt)))
 
 
-def default_app_font_pt() -> int:
-    """Default application-wide font point size."""
-    return DEFAULT_FONT_PT
-
-
-def default_table_font_pt() -> int:
-    """Default table font size (matches the application default)."""
-    return DEFAULT_FONT_PT
-
-
 def _load_saved_font_pt(key: str) -> int:
     raw = application_settings().value(key, 0)
     try:
@@ -108,7 +86,7 @@ def _load_saved_font_pt(key: str) -> int:
     except (TypeError, ValueError):
         pt = 0
     if pt <= 0:
-        return default_app_font_pt()
+        return DEFAULT_FONT_PT
     return _clamp_font_pt(pt)
 
 

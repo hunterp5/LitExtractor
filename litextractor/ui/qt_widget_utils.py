@@ -19,8 +19,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPixmap
-from PySide6.QtWidgets import QTextEdit, QWidget
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QWidget
 
 
 def pixmap_from_png(png: bytes) -> QPixmap:
@@ -28,18 +28,6 @@ def pixmap_from_png(png: bytes) -> QPixmap:
     if png:
         pixmap.loadFromData(png)
     return pixmap
-
-
-def monospace_text_font() -> QFont:
-    f = QFont("Consolas")
-    if not f.exactMatch():
-        f = QFont("Courier New")
-    f.setStyleHint(QFont.Monospace)
-    return f
-
-
-def apply_monospace_to_text_edit(w: QTextEdit) -> None:
-    w.setFont(monospace_text_font())
 
 
 def make_window_minimizable(widget: QWidget) -> None:

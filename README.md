@@ -62,9 +62,7 @@ Install Poppler using your platform's package manager or a trusted platform buil
 
 ## Run
 
-The Python namespace and launch command are now `litextractor`; update existing imports or scripts
-that referenced `patentextractor`. On first launch, LitExtractor copies saved preferences from the
-previous settings group. Logging can be configured with `LITEXTRACTOR_LOG_DIR`,
+Logging can be configured with `LITEXTRACTOR_LOG_DIR`,
 `LITEXTRACTOR_LOG_LEVEL`, and `LITEXTRACTOR_LOG_TO_FILE`.
 
 From the project directory:
