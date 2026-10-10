@@ -1,18 +1,18 @@
-# This file is part of PatentExtractor.
+# This file is part of LitExtractor.
 # Copyright (C) 2026 Hunter Picard
 #
-# PatentExtractor is free software: you can redistribute it and/or modify
+# LitExtractor is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# PatentExtractor is distributed in the hope that it will be useful,
+# LitExtractor is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
+# along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
 """OpenChemIE result normalization and merge tests (no real models)."""
 
@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-import patentextractor.extraction as extraction
-from patentextractor.extraction import (
+import litextractor.extraction as extraction
+from litextractor.extraction import (
     ExtractOptions,
     ExtractedMolecule,
     ExtractionCancelled,
@@ -110,7 +110,7 @@ def test_ddr2_sub_sample_reports_missing_layoutparser_diagnostics(ddr2_sub_pdf):
     assert "layoutparser" in message.lower()
     assert pdf_path.exists()
 
-    from patentextractor.extraction import build_openchemie_import_diagnostic
+    from litextractor.extraction import build_openchemie_import_diagnostic
 
     diagnostic = build_openchemie_import_diagnostic(error, pdf_path=str(pdf_path))
     assert "ddr2_sub.pdf" in diagnostic
@@ -132,7 +132,7 @@ def test_missing_openchemie_runtime_dependencies_detects_missing_modules(monkeyp
     monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
     monkeypatch.setattr(importlib, "import_module", unexpected_import)
 
-    from patentextractor.extraction import missing_openchemie_runtime_dependencies
+    from litextractor.extraction import missing_openchemie_runtime_dependencies
 
     missing = missing_openchemie_runtime_dependencies()
     assert "easyocr" in missing
@@ -140,7 +140,7 @@ def test_missing_openchemie_runtime_dependencies_detects_missing_modules(monkeyp
 
 
 def test_openchemie_import_error_is_not_reported_as_missing_dependency():
-    from patentextractor.extraction import build_openchemie_import_diagnostic
+    from litextractor.extraction import build_openchemie_import_diagnostic
 
     exc = ImportError(
         "cannot import name 'safe_rotate_enlarged_img_size' from "
@@ -155,7 +155,7 @@ def test_openchemie_import_error_is_not_reported_as_missing_dependency():
 
 
 def test_pdftotext_missing_uses_windows_shim_guidance():
-    from patentextractor.extraction import (
+    from litextractor.extraction import (
         build_openchemie_import_diagnostic,
         missing_openchemie_runtime_dependencies,
     )
@@ -173,7 +173,7 @@ def test_pdftotext_missing_uses_windows_shim_guidance():
 
 
 def test_patch_empty_molscribe_results_updates_interface_alias():
-    from patentextractor.openchemie_compat import patch_empty_molscribe_results
+    from litextractor.openchemie_compat import patch_empty_molscribe_results
 
     import molscribe.chemistry as chemistry
     import molscribe.interface as interface_module
@@ -185,7 +185,7 @@ def test_patch_empty_molscribe_results_updates_interface_alias():
 
 
 def test_cuda_is_optional_and_falls_back_to_cpu(monkeypatch):
-    from patentextractor import extraction_runtime
+    from litextractor import extraction_runtime
 
     monkeypatch.setattr(extraction_runtime, "cuda_available", lambda: False)
     assert extraction_runtime.cuda_available() is False
@@ -211,7 +211,7 @@ def test_figure_results_enrich_ethanol():
 
 
 def test_extraction_reexports_domain_models_and_chemistry_api():
-    from patentextractor import chemistry, models
+    from litextractor import chemistry, models
 
     assert extraction.ExtractOptions is models.ExtractOptions
     assert extraction.ExtractedMolecule is models.ExtractedMolecule
@@ -426,7 +426,7 @@ def test_prioritize_molecules_ranks_unsanitizable_structure_as_invalid():
 
 
 def test_prioritize_molecules_parses_validity_once_per_record(monkeypatch):
-    import patentextractor.chemistry as chemistry
+    import litextractor.chemistry as chemistry
 
     records = [ExtractedMolecule(smiles="CCO"), ExtractedMolecule(smiles="invalid")]
     original_parse = chemistry.parse_mol
@@ -598,7 +598,7 @@ def test_extract_from_pdf_uses_selected_margin_for_openchemie_crop_and_resets_it
     import numpy as np
     from PIL import Image
 
-    from patentextractor.openchemie_compat import _clean_bbox_output_with_context
+    from litextractor.openchemie_compat import _clean_bbox_output_with_context
 
     assert ExtractOptions().crop_margin == 0.0
 
@@ -667,7 +667,7 @@ def test_extract_from_pdf_reports_global_page_for_sliced_pdf(tmp_path):
 
 def test_figure_reactions_survive_unavailable_text_reaction_backend():
     client = FakeClient()
-    client._patentextractor_text_reactions_supported = False
+    client._litextractor_text_reactions_supported = False
 
     result = extract_from_pdf(
         "dummy.pdf",
@@ -790,7 +790,7 @@ def test_reactions_from_pdf_results_skips_malformed_entries(caplog):
 
 
 def test_coreference_parser_skips_negative_and_non_integer_indices(caplog):
-    from patentextractor.extraction import _apply_coref_identifiers
+    from litextractor.extraction import _apply_coref_identifiers
 
     molecule = ExtractedMolecule(
         smiles="CCO", source="figure", page=1, bbox=(0.1, 0.1, 0.5, 0.5)

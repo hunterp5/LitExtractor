@@ -1,18 +1,18 @@
-# This file is part of PatentExtractor.
+# This file is part of LitExtractor.
 # Copyright (C) 2026 Hunter Picard
 #
-# PatentExtractor is free software: you can redistribute it and/or modify
+# LitExtractor is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# PatentExtractor is distributed in the hope that it will be useful,
+# LitExtractor is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
+# along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
 """Fusion theme apply smoke tests (same palettes as MolManager)."""
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from PySide6.QtGui import QPalette
 
-from patentextractor.ui.theme import (
+from litextractor.ui.theme import (
     THEME_DARK,
     THEME_GROOVY,
     THEME_LIGHT,
@@ -74,8 +74,8 @@ def test_apply_application_theme_updates_current_theme_without_qapp():
 def test_theme_defaults_to_light_and_persists_user_choice(qapp):
     from PySide6.QtCore import QSettings
 
-    settings = QSettings("PatentExtractor", "PatentExtractor")
-    from patentextractor.ui.theme import load_saved_theme_name, save_theme_name
+    settings = QSettings("LitExtractor", "LitExtractor")
+    from litextractor.ui.theme import load_saved_theme_name, save_theme_name
 
     original_value = settings.value("gui/theme")
     had_original_value = settings.contains("gui/theme")
@@ -96,13 +96,13 @@ def test_theme_defaults_to_light_and_persists_user_choice(qapp):
 def test_gui_menu_selection_matches_saved_theme_on_startup(qapp):
     from PySide6.QtCore import QSettings
 
-    settings = QSettings("PatentExtractor", "PatentExtractor")
+    settings = QSettings("LitExtractor", "LitExtractor")
     original_value = settings.value("gui/theme")
     had_original_value = settings.contains("gui/theme")
     original_current_theme = current_theme_name()
     settings.setValue("gui/theme", THEME_DARK)
 
-    from patentextractor.ui.main_window import MainWindow
+    from litextractor.ui.main_window import MainWindow
 
     window = MainWindow()
     try:
@@ -140,7 +140,7 @@ def test_groovy_palette_is_randomized_and_multicolor(qapp):  # noqa: ARG001
 def test_theme_set_is_closed_and_legacy_values_fall_back_to_light(qapp):
     from PySide6.QtCore import QSettings
 
-    settings = QSettings("PatentExtractor", "PatentExtractor")
+    settings = QSettings("LitExtractor", "LitExtractor")
     original_value = settings.value("gui/theme")
     had_original_value = settings.contains("gui/theme")
     try:
@@ -159,7 +159,7 @@ def test_startup_initialization_restores_saved_theme_to_app_and_new_dialog(qapp)
     from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QDialog
 
-    settings = QSettings("PatentExtractor", "PatentExtractor")
+    settings = QSettings("LitExtractor", "LitExtractor")
     original_value = settings.value("gui/theme")
     had_original_value = settings.contains("gui/theme")
     try:
@@ -184,7 +184,7 @@ def test_structure_delegate_uses_palette_background_in_dark_mode(qapp):
     from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QStandardItem, QStandardItemModel
     from PySide6.QtWidgets import QStyleOptionViewItem
 
-    from patentextractor.ui.molecule_table import StructureDelegate
+    from litextractor.ui.molecule_table import StructureDelegate
 
     original_palette = qapp.palette()
     qapp.setPalette(palette_for_theme(THEME_DARK))

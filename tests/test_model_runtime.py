@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from patentextractor import model_runtime
+from litextractor import model_runtime
 
 
 def test_cached_client_is_reused_until_device_changes(monkeypatch):

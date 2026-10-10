@@ -1,18 +1,18 @@
-# This file is part of PatentExtractor.
+# This file is part of LitExtractor.
 # Copyright (C) 2026 Hunter Picard
 #
-# PatentExtractor is free software: you can redistribute it and/or modify
+# LitExtractor is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# PatentExtractor is distributed in the hope that it will be useful,
+# LitExtractor is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
+# along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
 """Main-window smoke tests."""
 
@@ -22,10 +22,10 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QFrame, QGroupBox, QLabel, QMessageBox, QScrollArea
 
-from patentextractor.extraction import ExtractedMolecule, ExtractionResult, enrich_molecule
-from patentextractor.ui.main_window import APP_NAME, MainWindow
-from patentextractor.ui.molecule_table import render_structure_pixmap
-from patentextractor.ui.theme import THEME_DARK, apply_application_theme, current_theme_name
+from litextractor.extraction import ExtractedMolecule, ExtractionResult, enrich_molecule
+from litextractor.ui.main_window import APP_NAME, MainWindow
+from litextractor.ui.molecule_table import render_structure_pixmap
+from litextractor.ui.theme import THEME_DARK, apply_application_theme, current_theme_name
 
 
 def test_main_window_loads_molecules(qapp):  # noqa: ARG001
@@ -97,7 +97,7 @@ def test_detail_pane_hides_missing_crop_and_aligns_metadata(qapp):
 def test_extractions_create_separate_tabs_and_export_uses_active_table(
     qapp, monkeypatch, tmp_path
 ):
-    import patentextractor.ui.main_window as main_window
+    import litextractor.ui.main_window as main_window
 
     window = MainWindow()
     table_font_pt = 13
@@ -177,7 +177,7 @@ def test_result_tab_deletion_requires_confirmation(qapp, monkeypatch):
 
 
 def test_result_tab_context_menu_targets_right_clicked_tab(qapp, monkeypatch):
-    import patentextractor.ui.main_window as main_window
+    import litextractor.ui.main_window as main_window
 
     window = MainWindow()
     window._on_extract_finished(
@@ -211,7 +211,7 @@ def test_result_tab_context_menu_targets_right_clicked_tab(qapp, monkeypatch):
 
 
 def test_main_window_does_not_rank_results_twice(qapp, monkeypatch):
-    import patentextractor.ui.molecule_table as molecule_table
+    import litextractor.ui.molecule_table as molecule_table
 
     def unexpected_ranking(_molecules):
         raise AssertionError("already-ranked extraction results should not be ranked again")
@@ -256,7 +256,7 @@ def test_cuda_probe_runs_in_background_and_updates_device_selector(
 ):  # noqa: ARG001
     import threading
 
-    import patentextractor.workers.cuda_probe_worker as cuda_probe_worker
+    import litextractor.workers.cuda_probe_worker as cuda_probe_worker
 
     probe_started = threading.Event()
     release_probe = threading.Event()
@@ -360,10 +360,10 @@ def test_close_during_extraction_waits_for_worker(qapp):
 def test_worker_reports_cancellation_without_emitting_failure(qapp, monkeypatch):  # noqa: ARG001
     from PySide6.QtTest import QSignalSpy
 
-    import patentextractor.extraction as extraction
-    import patentextractor.workers.extract_worker as extract_worker
-    from patentextractor.extraction import ExtractionCancelled
-    from patentextractor.models import ExtractOptions
+    import litextractor.extraction as extraction
+    import litextractor.workers.extract_worker as extract_worker
+    from litextractor.extraction import ExtractionCancelled
+    from litextractor.models import ExtractOptions
 
     def cancel_extraction(*_args, **_kwargs):
         raise ExtractionCancelled("Extraction cancelled.")

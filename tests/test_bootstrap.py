@@ -1,18 +1,18 @@
-# This file is part of PatentExtractor.
+# This file is part of LitExtractor.
 # Copyright (C) 2026 Hunter Picard
 #
-# PatentExtractor is free software: you can redistribute it and/or modify
+# LitExtractor is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# PatentExtractor is distributed in the hope that it will be useful,
+# LitExtractor is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
+# along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
 """Qt runtime bootstrap tests."""
 
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from patentextractor import bootstrap
+from litextractor import bootstrap
 
 
 @pytest.fixture
@@ -104,7 +104,7 @@ def test_startup_imports_do_not_load_model_or_rdkit_runtime() -> None:
     environment["QT_QPA_PLATFORM"] = "offscreen"
     code = (
         "import sys; from PySide6.QtWidgets import QApplication; "
-        "from patentextractor.bootstrap import MainWindow; "
+        "from litextractor.bootstrap import MainWindow; "
         "app = QApplication([]); window = MainWindow(); "
         "assert not any("
         "name == 'rdkit' or name.startswith('rdkit.') for name in sys.modules"

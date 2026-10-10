@@ -1,18 +1,18 @@
-# This file is part of PatentExtractor.
+# This file is part of LitExtractor.
 # Copyright (C) 2026 Hunter Picard
 #
-# PatentExtractor is free software: you can redistribute it and/or modify
+# LitExtractor is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# PatentExtractor is distributed in the hope that it will be useful,
+# LitExtractor is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
+# along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
 """CSV / SDF / SMILES export."""
 
@@ -20,10 +20,10 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from patentextractor.extraction import ExtractedMolecule, enrich_molecule
-from patentextractor.models import ExtractionResult
-from patentextractor.export import molecule_export_rows, write_csv, write_sdf, write_smi
-from patentextractor.ui.main_window import MainWindow
+from litextractor.extraction import ExtractedMolecule, enrich_molecule
+from litextractor.models import ExtractionResult
+from litextractor.export import molecule_export_rows, write_csv, write_sdf, write_smi
+from litextractor.ui.main_window import MainWindow
 
 
 def _ethanol() -> ExtractedMolecule:
@@ -88,7 +88,7 @@ def test_export_failure_is_reported_and_does_not_change_last_dir(
     def fail_to_write(_path, _molecules):
         raise PermissionError("permission denied")
 
-    monkeypatch.setattr("patentextractor.ui.main_window.write_csv", fail_to_write)
+    monkeypatch.setattr("litextractor.ui.main_window.write_csv", fail_to_write)
     window.export_csv()
 
     assert len(errors) == 1

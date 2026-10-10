@@ -1,12 +1,12 @@
-# This file is part of PatentExtractor.
+# This file is part of LitExtractor.
 # Copyright (C) 2026 Hunter Picard
 #
-# PatentExtractor is free software: you can redistribute it and/or modify
+# LitExtractor is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# PatentExtractor is distributed in the hope that it will be useful,
+# LitExtractor is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
@@ -19,15 +19,15 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QStyleOptionViewItem
 
-from patentextractor.models import ExtractedMolecule
-from patentextractor.structure_layout import (
+from litextractor.models import ExtractedMolecule
+from litextractor.structure_layout import (
     structure_column_minimum_width,
     structure_height,
     structure_row_height,
     structure_width,
 )
-from patentextractor.ui import molecule_table
-from patentextractor.ui.molecule_table import (
+from litextractor.ui import molecule_table
+from litextractor.ui.molecule_table import (
     COL_PATENT_CROP,
     COL_STRUCTURE,
     MoleculeTableModel,

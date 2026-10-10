@@ -1,18 +1,18 @@
-# This file is part of PatentExtractor.
+# This file is part of LitExtractor.
 # Copyright (C) 2026 Hunter Picard
 #
-# PatentExtractor is free software: you can redistribute it and/or modify
+# LitExtractor is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# PatentExtractor is distributed in the hope that it will be useful,
+# LitExtractor is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
+# along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
 """RDKit depiction smoke test."""
 
@@ -25,7 +25,7 @@ from types import SimpleNamespace
 
 from rdkit import Chem
 
-from patentextractor.structure_draw import configure_mol_drawer, render_molecule_png
+from litextractor.structure_draw import configure_mol_drawer, render_molecule_png
 
 
 def test_render_ethanol_png():
@@ -54,7 +54,7 @@ class BlockQtFinder(importlib.abc.MetaPathFinder):
             raise AssertionError("structure_draw imported PySide6")
 
 sys.meta_path.insert(0, BlockQtFinder())
-import patentextractor.structure_draw
+import litextractor.structure_draw
 assert not any(name == "PySide6" or name.startswith("PySide6.") for name in sys.modules)
 """
     subprocess.run(
@@ -67,7 +67,7 @@ assert not any(name == "PySide6" or name.startswith("PySide6.") for name in sys.
 
 
 def test_drawer_bond_width_tracks_layout_dimensions():
-    from patentextractor.structure_layout import set_structure_size, structure_height, structure_width
+    from litextractor.structure_layout import set_structure_size, structure_height, structure_width
 
     old_width, old_height = structure_width(), structure_height()
 

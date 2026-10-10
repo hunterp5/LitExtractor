@@ -1,6 +1,6 @@
-# PatentExtractor
+# LitExtractor
 
-PatentExtractor is a desktop application for finding chemical structures and related information in patent and research PDFs. Its PySide6 interface presents extracted molecules and reactions for review; OpenChemIE handles model-backed document extraction, and RDKit parses, validates, enriches, ranks, and depicts structures.
+LitExtractor is a desktop application for finding chemical structures and related information in patent and research PDFs. Its PySide6 interface presents extracted molecules and reactions for review; OpenChemIE handles model-backed document extraction, and RDKit parses, validates, enriches, ranks, and depicts structures.
 
 ## Features
 
@@ -54,7 +54,7 @@ python -m pip install --no-deps -r requirements.txt
 python -m pip install -e ".[dev]"
 ```
 
-These two stages are intentional: the pinned OpenChemIE revision declares `torch<2.0` in its upstream metadata, which conflicts with the PyTorch 2.x build used by this project. The first command installs the curated runtime and model package pins without resolving that incompatible metadata; the second installs PatentExtractor in editable mode with its development tools. This is the shortest safe workflow with the current upstream pins. Avoid installing OpenChemIE separately or replacing the first command with a plain `pip install -r requirements.txt`; a one-step resolver-based install is not reliable until the upstream metadata conflict is resolved.
+These two stages are intentional: the pinned OpenChemIE revision declares `torch<2.0` in its upstream metadata, which conflicts with the PyTorch 2.x build used by this project. The first command installs the curated runtime and model package pins without resolving that incompatible metadata; the second installs LitExtractor in editable mode with its development tools. This is the shortest safe workflow with the current upstream pins. Avoid installing OpenChemIE separately or replacing the first command with a plain `pip install -r requirements.txt`; a one-step resolver-based install is not reliable until the upstream metadata conflict is resolved.
 
 ### 4. Install Poppler
 
@@ -62,13 +62,18 @@ Install Poppler using your platform's package manager or a trusted platform buil
 
 ## Run
 
+The Python namespace and launch command are now `litextractor`; update existing imports or scripts
+that referenced `patentextractor`. On first launch, LitExtractor copies saved preferences from the
+previous settings group. Logging can be configured with `LITEXTRACTOR_LOG_DIR`,
+`LITEXTRACTOR_LOG_LEVEL`, and `LITEXTRACTOR_LOG_TO_FILE`.
+
 From the project directory:
 
 ```powershell
-python -m patentextractor
+python -m litextractor
 ```
 
-After an editable installation, the `patentextractor` console command is also available.
+After an editable installation, the `litextractor` console command is also available.
 
 ## Use the application
 
@@ -106,11 +111,11 @@ The end-to-end integration test and other tests needing real patent content use 
 Check Python style with:
 
 ```powershell
-python -m ruff check patentextractor tests
+python -m ruff check litextractor tests
 ```
 
 See [docs/code-audit.md](docs/code-audit.md) for the maintainability audit findings and remediation status.
 
 ## License and attribution
 
-PatentExtractor is licensed under the GNU General Public License v3 or later; see [LICENSE](LICENSE). OpenChemIE is a separate project (Fan et al., *Journal of Chemical Information and Modeling*, 2024). Cite the upstream tools and relevant research when using their models in published work.
+LitExtractor is licensed under the GNU General Public License v3 or later; see [LICENSE](LICENSE). OpenChemIE is a separate project (Fan et al., *Journal of Chemical Information and Modeling*, 2024). Cite the upstream tools and relevant research when using their models in published work.

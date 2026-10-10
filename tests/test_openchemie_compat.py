@@ -1,18 +1,18 @@
-# This file is part of PatentExtractor.
+# This file is part of LitExtractor.
 # Copyright (C) 2026 Hunter Picard
 #
-# PatentExtractor is free software: you can redistribute it and/or modify
+# LitExtractor is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# PatentExtractor is distributed in the hope that it will be useful,
+# LitExtractor is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
+# along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import sys
 
 import pytest
 
-from patentextractor.openchemie_compat import (
+from litextractor.openchemie_compat import (
     dropbox_direct_url,
     install_pdftotext_shim,
     looks_like_html,
@@ -70,7 +70,7 @@ def test_dropbox_cache_filename_strips_query():
 
 
 def test_huggingface_weight_url_for_publaynet():
-    from patentextractor.openchemie_compat import huggingface_weight_url
+    from litextractor.openchemie_compat import huggingface_weight_url
 
     url = huggingface_weight_url("publaynet-tf_efficientdet_d1.pth.tar")
     assert url is not None
@@ -94,7 +94,7 @@ def test_looks_like_html(tmp_path):
 
 
 def test_http_weight_helpers_remain_reexported():
-    from patentextractor import http_weights, openchemie_compat
+    from litextractor import http_weights, openchemie_compat
 
     assert openchemie_compat.LAYOUTPARSER_HF_WEIGHTS is http_weights.LAYOUTPARSER_HF_WEIGHTS
     assert openchemie_compat.safe_http_cache_filename is http_weights.safe_http_cache_filename
@@ -115,7 +115,7 @@ def test_paragraphs_from_page_text_splits_sentences():
 
 
 def test_paragraph_source_disables_text_reactions_explicitly():
-    from patentextractor.openchemie_compat import PdfParagraphSource
+    from litextractor.openchemie_compat import PdfParagraphSource
 
     assert PdfParagraphSource().extract_reactions_from_text() == []
 
@@ -123,7 +123,7 @@ def test_paragraph_source_disables_text_reactions_explicitly():
 def test_torch_load_compatibility_is_scoped_and_idempotent(monkeypatch):
     import torch
 
-    from patentextractor.openchemie_compat import (
+    from litextractor.openchemie_compat import (
         openchemie_checkpoint_loads,
         patch_torch_load_weights_only_default,
     )
@@ -153,7 +153,7 @@ def test_transformers_torch_load_gate_is_scoped(monkeypatch):
     import transformers.modeling_utils as modeling_utils
     import transformers.utils.import_utils as import_utils
 
-    from patentextractor.openchemie_compat import (
+    from litextractor.openchemie_compat import (
         openchemie_checkpoint_loads,
         patch_transformers_torch_load_check,
     )
@@ -180,7 +180,7 @@ def test_transformers_torch_load_gate_is_scoped(monkeypatch):
 def test_moldetect_crop_expansion_uses_real_context_pixels():
     import numpy as np
 
-    from patentextractor.openchemie_compat import _clean_bbox_output_with_context
+    from litextractor.openchemie_compat import _clean_bbox_output_with_context
 
     figure = np.zeros((100, 100, 3), dtype=np.uint8)
     figure[45:55, 82:86] = (255, 0, 0)  # edge atom outside the original x2=0.80 box
@@ -202,7 +202,7 @@ def test_parent_figure_crop_expansion_uses_page_pixels_and_clips_at_page_edge():
     import layoutparser as lp
     import numpy as np
 
-    from patentextractor.openchemie_compat import _layout_with_source_context
+    from litextractor.openchemie_compat import _layout_with_source_context
 
     page = np.zeros((100, 120, 3), dtype=np.uint8)
     page[45:55, 103:108] = (255, 0, 0)

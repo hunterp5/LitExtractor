@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "patentextractor"
+name = "litextractor"
 version = "0.1.0"
 description = "Desktop tool to extract chemical structures from patents (PySide6 + RDKit + OpenChemIE)"
 readme = "README.md"
@@ -43,16 +43,16 @@ dev = [
 ]
 
 [project.scripts]
-patentextractor = "patentextractor.app:main"
+litextractor = "litextractor.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["patentextractor*"]
+include = ["litextractor*"]
 
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-src = ["patentextractor", "tests"]
+src = ["litextractor", "tests"]
 
 [tool.ruff.lint]
 select = [
