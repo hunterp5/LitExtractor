@@ -19,6 +19,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -95,3 +97,27 @@ def test_prepare_qt_runtime_is_noop_off_windows(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(bootstrap.os, "add_dll_directory", unexpected_registration)
     bootstrap._prepare_qt_runtime()
+
+
+def test_startup_imports_do_not_load_model_or_rdkit_runtime() -> None:
+    environment = os.environ.copy()
+    environment["QT_QPA_PLATFORM"] = "offscreen"
+    code = (
+        "import sys; from PySide6.QtWidgets import QApplication; "
+        "from patentextractor.bootstrap import MainWindow; "
+        "app = QApplication([]); window = MainWindow(); "
+        "assert not any("
+        "name == 'rdkit' or name.startswith('rdkit.') for name in sys.modules"
+        "); "
+        "assert 'torch' not in sys.modules; assert 'openchemie' not in sys.modules; "
+        "window.close(); app.quit()"
+    )
+
+    subprocess.run(
+        [sys.executable, "-c", code],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+        cwd=Path(__file__).resolve().parents[1],
+    )

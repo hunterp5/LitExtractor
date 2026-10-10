@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QPixmap
@@ -60,17 +61,12 @@ from ..structure_layout import (
     structure_height,
     structure_width,
 )
-from ..chemistry import molecule_quality_score, parse_mol
-from ..extraction import cuda_available
-from ..export import write_csv, write_sdf, write_smi
 from ..models import ExtractOptions, ExtractedMolecule, ExtractionResult
-from ..structure_draw import render_molecule_png
-from ..workers.extract_worker import ExtractWorker
+from ..workers.cuda_probe_worker import CudaAvailabilityWorker
 from .dialogs.citations import CitationsDialog
 from .dialogs.font_settings import FontSettingsDialog
 from .dialogs.structure_settings import StructureSettingsDialog
-from .extraction_result_tab import ExtractionResultTab
-from .molecule_table import pixmap_from_png
+from .qt_widget_utils import pixmap_from_png
 from .startup_page import StartupPage
 from .theme import (
     THEME_DARK,
@@ -93,6 +89,10 @@ from .theme import (
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from .extraction_result_tab import ExtractionResultTab
+    from ..workers.extract_worker import ExtractWorker
+
 APP_NAME = "PatentExtractor"
 _SETTINGS_ORG = "PatentExtractor"
 _SETTINGS_APP = "PatentExtractor"
@@ -100,6 +100,27 @@ _SETTINGS_KEY_LAST_DIR = "files/last_dir"
 
 _EXTRACT_PANEL_WIDTH = 280
 _DETAIL_PANEL_WIDTH = 420
+
+
+def write_csv(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
+    """Import and run CSV export only when the user requests it."""
+    from ..export import write_csv as export_csv_file
+
+    export_csv_file(path, molecules)
+
+
+def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
+    """Import and run SDF export only when the user requests it."""
+    from ..export import write_sdf as export_sdf_file
+
+    return export_sdf_file(path, molecules)
+
+
+def write_smi(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
+    """Import and run SMILES export only when the user requests it."""
+    from ..export import write_smi as export_smiles_file
+
+    export_smiles_file(path, molecules)
 
 
 class MainWindow(QMainWindow):
@@ -113,6 +134,9 @@ class MainWindow(QMainWindow):
         self._result: ExtractionResult | None = None
         self._active_result_tab: ExtractionResultTab | None = None
         self._worker: ExtractWorker | None = None
+        self._cuda_probe_started = False
+        self._cuda_worker: CudaAvailabilityWorker | None = None
+        self._device_selection_touched = False
         self._close_after_worker = False
         self._app_font_pt = load_saved_app_font_pt()
         apply_application_font_pt(self._app_font_pt)
@@ -124,8 +148,6 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_central()
         apply_application_theme(QApplication.instance(), self._gui_theme)
-        self._empty_result_tab = ExtractionResultTab(self)
-        self._empty_result_tab.hide()
         self._set_active_result_tab(None)
         self.status_label = getattr(self, "_extract_status", QLabel("Ready — open a patent PDF to extract structures."))
         self.statusBar().hide()
@@ -290,13 +312,11 @@ class MainWindow(QMainWindow):
 
         self._device_combo = QComboBox()
         self._device_combo.setToolTip(
-            "CUDA appears only when a compatible NVIDIA GPU and drivers are available, "
-            "otherwise CPU is used."
+            "CUDA is checked in the background after startup. CPU is available immediately; "
+            "CUDA appears when a compatible NVIDIA GPU and drivers are available."
         )
         self._device_combo.addItem("CPU", "cpu")
-        if self._cuda_available():
-            self._device_combo.addItem("CUDA (GPU)", "cuda")
-            self._device_combo.setCurrentIndex(self._device_combo.findData("cuda"))
+        self._device_combo.activated.connect(self._mark_device_selection_touched)
         processing_form.addRow("Device:", self._device_combo)
 
         self._crop_margin_spin = QDoubleSpinBox()
@@ -457,9 +477,6 @@ class MainWindow(QMainWindow):
             detail.setStyleSheet(detail_panel_stylesheet())
         for result_tab in self._result_tab_widgets():
             result_tab.refresh_theme()
-        empty_tab = getattr(self, "_empty_result_tab", None)
-        if empty_tab is not None:
-            empty_tab.refresh_theme()
         if getattr(self, "_table_font_pt", None) is not None:
             self._apply_table_font()
         self.update()
@@ -495,8 +512,6 @@ class MainWindow(QMainWindow):
         for result_tab in self._result_tab_widgets():
             result_tab.apply_structure_layout()
             result_tab.rerender_structures()
-        self._empty_result_tab.apply_structure_layout()
-        self._empty_result_tab.rerender_structures()
         self._refresh_selected_detail()
 
     def open_font_dialog(self) -> None:
@@ -535,9 +550,6 @@ class MainWindow(QMainWindow):
     def _apply_table_font(self) -> None:
         for result_tab in self._result_tab_widgets():
             result_tab.apply_table_font(self._table_font_pt)
-        empty_tab = getattr(self, "_empty_result_tab", None)
-        if empty_tab is not None:
-            empty_tab.apply_table_font(self._table_font_pt)
 
     def show_user_guide(self) -> None:
         QMessageBox.information(
@@ -612,9 +624,30 @@ class MainWindow(QMainWindow):
     def _sync_all_structures_state(self) -> None:
         self._max_mols_spin.setEnabled(not self._all_structures_chk.isChecked())
 
-    @staticmethod
-    def _cuda_available() -> bool:
-        return cuda_available()
+    def start_cuda_probe(self) -> None:
+        """Check CUDA in the background after the main window has been shown."""
+        if self._cuda_probe_started:
+            return
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        self._cuda_probe_started = True
+        worker = CudaAvailabilityWorker(app)
+        self._cuda_worker = worker
+        worker.availability_checked.connect(self._on_cuda_probe_finished)
+        app.aboutToQuit.connect(lambda worker=worker: worker.wait())
+        worker.start()
+
+    def _mark_device_selection_touched(self, _index: int) -> None:
+        self._device_selection_touched = True
+
+    def _on_cuda_probe_finished(self, available: bool) -> None:
+        if not available or self._device_combo.findData("cuda") >= 0:
+            return
+        self._device_combo.addItem("CUDA (GPU)", "cuda")
+        if not self._device_selection_touched:
+            self._device_combo.setCurrentIndex(self._device_combo.findData("cuda"))
 
     def _current_options(self) -> ExtractOptions:
         max_mols = int(self._max_mols_spin.value())
@@ -647,6 +680,8 @@ class MainWindow(QMainWindow):
         if not (opts.figures or opts.text or opts.reactions or opts.corefs):
             QMessageBox.information(self, APP_NAME, "Select at least one extraction source.")
             return
+        from ..workers.extract_worker import ExtractWorker
+
         self._set_busy(True)
         self._extract_status.setText("Starting…")
         self._worker = ExtractWorker(self._pdf_path, opts, self)
@@ -695,6 +730,8 @@ class MainWindow(QMainWindow):
         if not isinstance(result, ExtractionResult):
             self._on_extract_failed("Unexpected extraction result.")
             return
+        from .extraction_result_tab import ExtractionResultTab
+
         result_tab = ExtractionResultTab(self._result_tabs)
         result_tab.set_result(result)
         result_tab.apply_table_font(self._table_font_pt)
@@ -736,6 +773,10 @@ class MainWindow(QMainWindow):
             self._results_stack.setCurrentWidget(self._startup_page)
 
     def _result_tab_widgets(self) -> list[ExtractionResultTab]:
+        if self._result_tabs.count() == 0:
+            return []
+        from .extraction_result_tab import ExtractionResultTab
+
         return [
             widget
             for index in range(self._result_tabs.count())
@@ -748,12 +789,14 @@ class MainWindow(QMainWindow):
             if index is not None and 0 <= index < self._result_tabs.count()
             else None
         )
-        if not isinstance(result_tab, ExtractionResultTab):
-            result_tab = None
+        if result_tab is not None:
+            from .extraction_result_tab import ExtractionResultTab
+
+            if not isinstance(result_tab, ExtractionResultTab):
+                result_tab = None
         self._active_result_tab = result_tab
-        active_tables = result_tab or self._empty_result_tab
-        self._mol_table = active_tables.molecule_table
-        self._rxn_table = active_tables.reaction_table
+        self._mol_table = result_tab.molecule_table if result_tab is not None else None
+        self._rxn_table = result_tab.reaction_table if result_tab is not None else None
         self._result = result_tab.result if result_tab is not None else None
         if result_tab is None:
             self._clear_detail()
@@ -805,6 +848,8 @@ class MainWindow(QMainWindow):
         self._refresh_selected_detail()
 
     def _selected_molecule(self) -> ExtractedMolecule | None:
+        if self._mol_table is None:
+            return None
         indexes = self._mol_table.selectionModel().selectedRows()
         if not indexes:
             return None
@@ -815,6 +860,9 @@ class MainWindow(QMainWindow):
         if rec is None:
             self._clear_detail()
             return
+        from ..chemistry import molecule_quality_score, parse_mol
+        from ..structure_draw import render_molecule_png
+
         mol = parse_mol(smiles=rec.smiles, molfile=rec.molfile)
         png = b""
         if mol is not None:
@@ -865,7 +913,11 @@ class MainWindow(QMainWindow):
             value.setText("—")
 
     def _require_molecules(self) -> list[ExtractedMolecule] | None:
-        mols = self._mol_table.molecule_model().molecules()
+        mols = (
+            self._mol_table.molecule_model().molecules()
+            if self._mol_table is not None
+            else []
+        )
         if not mols:
             QMessageBox.information(self, APP_NAME, "No extracted molecules to export.")
             return None

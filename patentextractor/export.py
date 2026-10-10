@@ -21,9 +21,6 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from rdkit import Chem
-
-from .chemistry import parse_mol
 from .models import ExtractedMolecule
 
 
@@ -79,6 +76,10 @@ def write_smi(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
 
 def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
     """Write RDKit-parseable records to SDF. Returns the number of molecules written."""
+    from rdkit import Chem
+
+    from .chemistry import parse_mol
+
     written = 0
     writer = Chem.SDWriter(str(path))
     try:

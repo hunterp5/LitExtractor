@@ -22,7 +22,7 @@ import logging
 
 from PySide6.QtCore import QThread, Signal
 
-from ..extraction import ExtractionCancelled, extract_from_pdf
+from ..extraction_errors import ExtractionCancelled
 from ..models import ExtractOptions, ExtractionResult
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,11 @@ class ExtractWorker(QThread):
 
     def run(self) -> None:
         try:
+            from ..rdkit_env import configure_rdkit_for_desktop_app
+
+            configure_rdkit_for_desktop_app()
+            from ..extraction import extract_from_pdf
+
             result = extract_from_pdf(
                 self._pdf_path,
                 self._options,

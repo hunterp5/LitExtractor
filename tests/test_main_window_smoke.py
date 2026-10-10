@@ -251,6 +251,54 @@ def test_side_panels_have_fixed_widths_and_options_are_grouped(qapp):  # noqa: A
     window.close()
 
 
+def test_cuda_probe_runs_in_background_and_updates_device_selector(
+    qapp, monkeypatch
+):  # noqa: ARG001
+    import threading
+
+    import patentextractor.workers.cuda_probe_worker as cuda_probe_worker
+
+    probe_started = threading.Event()
+    release_probe = threading.Event()
+
+    def delayed_cuda_probe() -> bool:
+        probe_started.set()
+        assert release_probe.wait(5)
+        return True
+
+    monkeypatch.setattr(cuda_probe_worker, "cuda_available", delayed_cuda_probe)
+    window = MainWindow()
+    assert window._device_combo.count() == 1
+    assert window._device_combo.currentData() == "cpu"
+    assert not probe_started.is_set()
+
+    window.show()
+    window.start_cuda_probe()
+    assert probe_started.wait(5)
+    assert window._device_combo.count() == 1
+
+    worker = window._cuda_worker
+    assert worker is not None
+    release_probe.set()
+    assert worker.wait(5000)
+    qapp.processEvents()
+
+    assert window._device_combo.findData("cuda") >= 0
+    assert window._device_combo.currentData() == "cuda"
+    window.close()
+
+
+def test_cuda_probe_preserves_manual_cpu_selection(qapp):  # noqa: ARG001
+    window = MainWindow()
+    window._device_combo.activated.emit(0)
+
+    window._on_cuda_probe_finished(True)
+
+    assert window._device_combo.findData("cuda") >= 0
+    assert window._device_combo.currentData() == "cpu"
+    window.close()
+
+
 def test_manual_checkbox_defaults_are_used(qapp):  # noqa: ARG001
     w = MainWindow()
     assert w._all_pages_chk.isChecked() is True
@@ -312,6 +360,7 @@ def test_close_during_extraction_waits_for_worker(qapp):
 def test_worker_reports_cancellation_without_emitting_failure(qapp, monkeypatch):  # noqa: ARG001
     from PySide6.QtTest import QSignalSpy
 
+    import patentextractor.extraction as extraction
     import patentextractor.workers.extract_worker as extract_worker
     from patentextractor.extraction import ExtractionCancelled
     from patentextractor.models import ExtractOptions
@@ -319,7 +368,7 @@ def test_worker_reports_cancellation_without_emitting_failure(qapp, monkeypatch)
     def cancel_extraction(*_args, **_kwargs):
         raise ExtractionCancelled("Extraction cancelled.")
 
-    monkeypatch.setattr(extract_worker, "extract_from_pdf", cancel_extraction)
+    monkeypatch.setattr(extraction, "extract_from_pdf", cancel_extraction)
     worker = extract_worker.ExtractWorker("unused.pdf", ExtractOptions())
     cancelled = QSignalSpy(worker.cancelled)
     failed = QSignalSpy(worker.failed)

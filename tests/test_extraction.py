@@ -388,13 +388,14 @@ def test_ddr2_sub_edge_structures_extract_end_to_end(ddr2_sub_pdf):
         ExtractOptions(
             figures=True,
             text=False,
-            corefs=False,
+            corefs=True,
             reactions=False,
             merge_by_inchi=True,
             first_page=1,
             num_pages=1,
             max_molecules=50,
             batch_size=8,
+            device=resolve_torch_device("cuda"),
         ),
     )
     assert len(result.molecules) > 0, result.warnings
@@ -524,6 +525,71 @@ def test_extract_from_pdf_fake_client_merges_ethanol():
     assert len(result.reactions) == 1
     assert result.reactions[0].products == ["CC=O"]
     assert result.reactions[0].page == 3
+
+
+def test_coreference_extraction_skips_unused_molscribe_predictions():
+    class TrackingClient(FakeClient):
+        def __init__(self):
+            self.coreference_kwargs = None
+
+        def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
+            self.coreference_kwargs = kwargs
+            return super().extract_molecule_corefs_from_figures_in_pdf(pdf, **kwargs)
+
+    client = TrackingClient()
+    extract_from_pdf(
+        "dummy.pdf",
+        ExtractOptions(figures=True, text=False, corefs=True, reactions=False),
+        client=client,
+    )
+
+    assert client.coreference_kwargs is not None
+    assert client.coreference_kwargs["molscribe"] is False
+    assert client.coreference_kwargs["ocr"] is True
+
+
+def test_coreference_extraction_is_skipped_without_figure_source():
+    class TrackingClient(FakeClient):
+        def __init__(self):
+            self.coreference_calls = 0
+
+        def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
+            self.coreference_calls += 1
+            return super().extract_molecule_corefs_from_figures_in_pdf(pdf, **kwargs)
+
+    client = TrackingClient()
+    result = extract_from_pdf(
+        "dummy.pdf",
+        ExtractOptions(figures=False, text=False, corefs=True, reactions=False),
+        client=client,
+    )
+
+    assert client.coreference_calls == 0
+    assert result.molecules == []
+
+
+def test_coreference_extraction_is_skipped_when_figures_find_no_molecules():
+    class TrackingClient(FakeClient):
+        def __init__(self):
+            self.coreference_calls = 0
+
+        def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
+            del pdf, kwargs
+            return []
+
+        def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
+            self.coreference_calls += 1
+            return super().extract_molecule_corefs_from_figures_in_pdf(pdf, **kwargs)
+
+    client = TrackingClient()
+    result = extract_from_pdf(
+        "dummy.pdf",
+        ExtractOptions(figures=True, text=False, corefs=True, reactions=False),
+        client=client,
+    )
+
+    assert client.coreference_calls == 0
+    assert result.molecules == []
 
 
 def test_extract_from_pdf_uses_selected_margin_for_openchemie_crop_and_resets_it():

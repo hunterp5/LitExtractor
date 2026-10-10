@@ -17,5 +17,9 @@
 """Extraction-specific exceptions shared by focused implementation modules."""
 
 
+class ExtractionCancelled(RuntimeError):
+    """Raised when the GUI asks the worker to stop between extractor steps."""
+
+
 class ExtractorUnavailableError(RuntimeError):
     """OpenChemIE (or a required backend) is not installed."""

@@ -36,7 +36,7 @@ from .extraction_results import (
     reactions_from_pdf_results,
 )
 from .extraction_coreference import apply_coref_identifiers as _apply_coref_identifiers
-from .extraction_errors import ExtractorUnavailableError
+from .extraction_errors import ExtractionCancelled, ExtractorUnavailableError
 from .extraction_runtime import (
     build_openchemie_import_diagnostic as build_openchemie_import_diagnostic,
     cuda_available as cuda_available,
@@ -179,10 +179,6 @@ def merge_molecules_by_inchi(molecules: list[ExtractedMolecule]) -> list[Extract
     return merged
 
 
-class ExtractionCancelled(RuntimeError):
-    """Raised when the GUI asks the worker to stop between extractor steps."""
-
-
 def _normalize_openchemie_pages(figures: Any) -> Any:
     """Convert OpenChemIE's zero-based figure-page indexes to one-based pages."""
     for figure in figures or []:
@@ -311,13 +307,15 @@ def _extract_from_pdf(
                 logger.exception("Text molecule extraction failed")
                 warnings.append(f"Text extraction failed: {exc}")
 
-        if options.corefs:
+        if options.corefs and any(molecule.source == "figure" for molecule in molecules):
             _check_cancel()
             _progress("Resolving molecule–label coreferences…")
             try:
                 with openchemie_checkpoint_loads():
                     corefs = _normalize_openchemie_pages(
-                        client.extract_molecule_corefs_from_figures_in_pdf(work_pdf, **kwargs)
+                        client.extract_molecule_corefs_from_figures_in_pdf(
+                            work_pdf, **kwargs, molscribe=False, ocr=True
+                        )
                     )
                 _apply_coref_identifiers(molecules, corefs)
             except ExtractionCancelled:

@@ -37,6 +37,7 @@ from ..structure_layout import (
     structure_width,
 )
 from ..structure_draw import render_molecule_png
+from .qt_widget_utils import pixmap_from_png
 
 HEADERS = (
     "Structure",
@@ -53,13 +54,6 @@ HEADERS = (
 
 COL_STRUCTURE = 0
 COL_PATENT_CROP = 1
-
-
-def pixmap_from_png(png: bytes) -> QPixmap:
-    pix = QPixmap()
-    if png:
-        pix.loadFromData(png)
-    return pix
 
 
 def render_structure_pixmap(rec: ExtractedMolecule) -> QPixmap:

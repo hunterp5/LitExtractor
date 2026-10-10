@@ -58,10 +58,10 @@ def _prepare_qt_runtime() -> None:
 
 _prepare_qt_runtime()
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from .app_logging import configure_app_logging, install_crash_excepthook
-from .rdkit_env import configure_rdkit_for_desktop_app
 from .ui.main_window import MainWindow
 from .ui.theme import initialize_application_theme
 
@@ -72,10 +72,9 @@ def main(argv: list[str] | None = None) -> int:
 
     log_path = configure_app_logging()
     install_crash_excepthook(log_path=log_path)
-    configure_rdkit_for_desktop_app()
-
     app = QApplication(argv)
     initialize_application_theme(app)
     window = MainWindow()
     window.show()
+    QTimer.singleShot(0, window.start_cuda_probe)
     return app.exec()

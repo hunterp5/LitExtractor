@@ -19,8 +19,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPixmap
 from PySide6.QtWidgets import QTextEdit, QWidget
+
+
+def pixmap_from_png(png: bytes) -> QPixmap:
+    pixmap = QPixmap()
+    if png:
+        pixmap.loadFromData(png)
+    return pixmap
 
 
 def monospace_text_font() -> QFont:

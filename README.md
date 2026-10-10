@@ -10,7 +10,7 @@ PatentExtractor is a desktop application for finding chemical structures and rel
 - Select a molecule to view its structure, patent crop on a white canvas, and metadata in a fixed-width preview pane.
 - Merge duplicate molecules by InChIKey.
 - Export molecule data to CSV, SDF, or SMILES.
-- Choose CPU or CUDA for model inference and customize the application theme and structure display.
+- Choose CPU or CUDA for model inference and customize the application theme and structure display. CPU is available immediately; CUDA detection runs in the background after the window opens.
 - A simple centered workspace message shows when to open a PDF and reports initial extraction progress.
 - View recommended software and research citations from **Help → Citations**.
 

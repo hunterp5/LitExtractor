@@ -21,6 +21,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from patentextractor.extraction import ExtractedMolecule, enrich_molecule
+from patentextractor.models import ExtractionResult
 from patentextractor.export import molecule_export_rows, write_csv, write_sdf, write_smi
 from patentextractor.ui.main_window import MainWindow
 
@@ -66,7 +67,9 @@ def test_export_failure_is_reported_and_does_not_change_last_dir(
     qapp, monkeypatch, tmp_path
 ):
     window = MainWindow()
-    window._mol_table.molecule_model().set_molecules([_ethanol()])
+    window._on_extract_finished(
+        ExtractionResult(pdf_path="demo.pdf", molecules=[_ethanol()], reactions=[])
+    )
     output_path = tmp_path / "blocked.csv"
     previous_dir = window._last_dir()
     errors: list[str] = []
