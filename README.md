@@ -10,7 +10,7 @@ LitExtractor is a desktop application for finding chemical structures and relate
 - Select a molecule to view its structure, patent crop on a white canvas, and metadata in a fixed-width preview pane.
 - Merge duplicate molecules by InChIKey.
 - Export molecule data to CSV, SDF, or SMILES.
-- Choose CPU or CUDA for model inference and customize the application theme and structure display. CPU is available immediately; CUDA detection runs in the background after the window opens.
+- Choose CPU or CUDA for model inference. CPU is available immediately; CUDA detection runs in the background after the window opens.
 - A simple centered workspace message shows when to open a PDF and reports initial extraction progress.
 - View recommended software and research citations from **Help → Citations**.
 
@@ -83,12 +83,9 @@ After an editable installation, the `litextractor` console command is also avail
 
 Molecule crop expansion is **0% by default**: the detected molecule box is not enlarged before cropping. Users can choose a larger margin in the Extract panel. A separate fixed 8% context margin is applied earlier to parent figure regions for layout detection; it is not controlled by the molecule crop setting. Both crop stages use source-image pixels and clip at image boundaries.
 
-The interface includes exactly three themes: Light, Dark, and Groovy. The selected theme is saved
-between app sessions and applies to the application UI and Qt dialogs. File pickers retain their
-native operating-system appearance. On Windows, the system title bar is themed where the installed
-Windows version supports it; other window managers control native window decorations. Structure
-size and fonts can be adjusted in Settings. Use **Help → Citations** for the application’s core
-technology references.
+The interface uses a single light theme and fixed structure sizes and fonts; there is no settings
+menu or saved preferences. File pickers retain their native operating-system appearance. Use
+**Help → Citations** for the application’s core technology references.
 
 ## Tests
 

@@ -69,18 +69,3 @@ class ExtractionResultTab(QWidget):
 
         self.tabs.setTabText(0, f"Molecules ({len(result.molecules)})")
         self.tabs.setTabText(1, f"Reactions ({len(result.reactions)})")
-
-    def apply_table_font(self, point_size: int) -> None:
-        self.molecule_table.apply_table_font(point_size)
-        font = self.reaction_table.font()
-        font.setPointSize(int(point_size))
-        self.reaction_table.setFont(font)
-
-    def apply_structure_layout(self) -> None:
-        self.molecule_table.apply_structure_layout()
-
-    def rerender_structures(self) -> None:
-        self.molecule_table.molecule_model().rerender_structures()
-
-    def refresh_theme(self) -> None:
-        self.molecule_table.refresh_theme()

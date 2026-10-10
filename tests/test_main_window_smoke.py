@@ -26,7 +26,6 @@ from litextractor.chemistry import enrich_molecule
 from litextractor.models import ExtractedMolecule, ExtractionResult
 from litextractor.ui.main_window import APP_NAME, MainWindow
 from litextractor.ui.molecule_table import render_structure_pixmap
-from litextractor.ui.theme import THEME_DARK, apply_application_theme, current_theme_name
 
 
 def test_main_window_loads_molecules(qapp):  # noqa: ARG001
@@ -98,8 +97,6 @@ def test_extractions_create_separate_tabs_and_export_uses_active_table(
     import litextractor.ui.main_window as main_window
 
     window = MainWindow()
-    table_font_pt = 13
-    window._set_table_font_pt(table_font_pt, persist=False)
     first_molecule = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="first"))
     second_molecule = enrich_molecule(
         ExtractedMolecule(smiles="CC(=O)C", identifier="second")
@@ -131,14 +128,6 @@ def test_extractions_create_separate_tabs_and_export_uses_active_table(
     assert window._result_tabs.tabText(1) == "second.pdf"
     assert first_tab is not window._active_result_tab
     assert window._active_result_tab.result is second_result
-    assert [
-        window._result_tabs.widget(index).molecule_table.font().pointSize()
-        for index in range(window._result_tabs.count())
-    ] == [table_font_pt, table_font_pt]
-    assert [
-        window._result_tabs.widget(index).reaction_table.font().pointSize()
-        for index in range(window._result_tabs.count())
-    ] == [table_font_pt, table_font_pt]
 
     window._result_tabs.setCurrentIndex(0)
     assert window._active_result_tab.result is first_result
@@ -222,13 +211,14 @@ def test_main_window_does_not_rank_results_twice(qapp, monkeypatch):
     w.close()
 
 
-def test_main_window_theme_switch(qapp):
+def test_menus_have_no_settings_and_theme_is_light(qapp):  # noqa: ARG001
+    from litextractor.ui.theme import apply_light_theme
+
+    apply_light_theme(qapp)
     w = MainWindow()
-    apply_application_theme(qapp, THEME_DARK)
-    w.refresh_theme()
-    assert current_theme_name() == THEME_DARK
-    assert w.palette().color(QPalette.ColorRole.Window).lightness() < 120
-    assert w.menuBar().palette().color(QPalette.ColorRole.Window).lightness() < 120
+    titles = [action.text() for action in w.menuBar().actions()]
+    assert titles == ["&File", "&Help"]
+    assert w.palette().color(QPalette.ColorRole.Window).lightness() > 200
     w.close()
 
 

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Main window: extract panel, results table, detail pane, MolManager-matching themes."""
+"""Main window: extract panel, results tabs, and detail pane."""
 
 from __future__ import annotations
 
@@ -23,14 +23,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QSettings, Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
@@ -54,68 +53,40 @@ from PySide6.QtWidgets import (
 
 from ..crop_context import DEFAULT_MOLECULE_CROP_MARGIN
 from ..export import write_csv, write_sdf, write_smi
-from ..structure_layout import (
-    DETAIL_STRUCTURE_HEIGHT,
-    load_saved_structure_size,
-    set_structure_size,
-    structure_height,
-    structure_width,
-)
 from ..models import ExtractOptions, ExtractedMolecule, ExtractionResult
-from ..settings import application_settings
+from ..structure_dimensions import DETAIL_STRUCTURE_HEIGHT
 from ..workers.cuda_probe_worker import CudaAvailabilityWorker
 from .dialogs.citations import CitationsDialog
-from .dialogs.font_settings import FontSettingsDialog
-from .dialogs.structure_settings import StructureSettingsDialog
 from .detail_panel_presenter import DetailPanelPresenter
 from .extraction_controller import ExtractionController
 from .result_tabs_controller import ResultTabsController
 from .startup_page import StartupPage
-from .theme import (
-    THEME_DARK,
-    THEME_GROOVY,
-    THEME_LIGHT,
-    apply_application_font_pt,
-    apply_application_theme,
-    detail_panel_stylesheet,
-    extract_panel_stylesheet,
-    load_saved_app_font_pt,
-    load_saved_table_font_pt,
-    load_saved_theme_name,
-    save_app_font_pt,
-    save_table_font_pt,
-    save_theme_name,
-)
+from .theme import DETAIL_PANEL_STYLESHEET, EXTRACT_PANEL_STYLESHEET
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .extraction_result_tab import ExtractionResultTab
 
 APP_NAME = "LitExtractor"
-_SETTINGS_KEY_LAST_DIR = "files/last_dir"
 
 _EXTRACT_PANEL_WIDTH = 280
 _DETAIL_PANEL_WIDTH = 420
 
 
 class MainWindow(QMainWindow):
-    """Patent extraction workspace with MolManager Fusion themes."""
+    """Patent extraction workspace."""
 
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1400, 820)
         self._pdf_path: str | None = None
+        self._last_dir = str(Path.home())
         self._active_result_tab: ExtractionResultTab | None = None
         self._cuda_probe_started = False
         self._cuda_worker: CudaAvailabilityWorker | None = None
         self._device_selection_touched = False
-        self._app_font_pt = load_saved_app_font_pt()
-        apply_application_font_pt(self._app_font_pt)
-        self._gui_theme = load_saved_theme_name()
-        self._table_font_pt = load_saved_table_font_pt()
-        w, h = load_saved_structure_size()
-        set_structure_size(w, h, persist=False)
 
         self._build_menus()
         self._build_central()
@@ -144,22 +115,8 @@ class MainWindow(QMainWindow):
             startup_page=self._startup_page,
             results_stack=self._results_stack,
         )
-        apply_application_theme(QApplication.instance(), self._gui_theme)
         self._set_active_result_tab(None)
         self.statusBar().hide()
-        self._apply_table_font()
-        self.refresh_theme()
-
-    def _settings(self) -> QSettings:
-        return application_settings()
-
-    def _last_dir(self) -> str:
-        raw = str(self._settings().value(_SETTINGS_KEY_LAST_DIR) or "")
-        return raw if raw and Path(raw).is_dir() else str(Path.home())
-
-    def _set_last_dir(self, path: str) -> None:
-        parent = str(Path(path).parent)
-        self._settings().setValue(_SETTINGS_KEY_LAST_DIR, parent)
 
     def _build_menus(self) -> None:
         menubar = self.menuBar()
@@ -173,40 +130,10 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(QAction("E&xit", self, shortcut="Ctrl+Q", triggered=self.close))
 
-        self._settings_menu = menubar.addMenu("&Settings")
-        settings_menu = self._settings_menu
-        self._gui_menu = settings_menu.addMenu("&GUI")
-        self._act_theme_light = QAction("Light Mode", self, checkable=True)
-        self._act_theme_dark = QAction("Dark Mode", self, checkable=True)
-        self._act_theme_groovy = QAction("Groovy Mode", self, checkable=True)
-        self._theme_action_group = QActionGroup(self)
-        self._theme_action_group.setExclusive(True)
-        self._theme_action_group.addAction(self._act_theme_light)
-        self._theme_action_group.addAction(self._act_theme_dark)
-        self._theme_action_group.addAction(self._act_theme_groovy)
-        self._act_theme_light.triggered.connect(lambda: self._set_gui_theme(THEME_LIGHT))
-        self._act_theme_dark.triggered.connect(lambda: self._set_gui_theme(THEME_DARK))
-        self._act_theme_groovy.triggered.connect(lambda: self._set_gui_theme(THEME_GROOVY))
-        self._gui_menu.addAction(self._act_theme_light)
-        self._gui_menu.addAction(self._act_theme_dark)
-        self._gui_menu.addAction(self._act_theme_groovy)
-        self._sync_theme_menu_checks()
-        settings_menu.addSeparator()
-        settings_menu.addAction(
-            QAction("&Structure…", self, triggered=self.open_structure_settings)
-        )
-        settings_menu.addAction(QAction("&Font…", self, triggered=self.open_font_dialog))
-
         self._help_menu = menubar.addMenu("&Help")
         help_menu = self._help_menu
         help_menu.addAction(QAction("&User Guide", self, triggered=self.show_user_guide))
         help_menu.addAction(QAction("&Citations", self, triggered=self.show_citations))
-
-    def _sync_theme_menu_checks(self) -> None:
-        name = self._gui_theme
-        self._act_theme_light.setChecked(name == THEME_LIGHT)
-        self._act_theme_dark.setChecked(name == THEME_DARK)
-        self._act_theme_groovy.setChecked(name == THEME_GROOVY)
 
     def _build_central(self) -> None:
         central = QWidget()
@@ -353,6 +280,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.status_label)
         layout.addStretch(1)
         self._extract_panel = panel
+        panel.setStyleSheet(EXTRACT_PANEL_STYLESHEET)
         return panel
 
     def _build_results_tabs(self) -> QStackedWidget:
@@ -455,87 +383,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(scroll, 1)
 
         self._detail_panel = panel
+        panel.setStyleSheet(DETAIL_PANEL_STYLESHEET)
         panel.hide()
         return panel
-
-    def refresh_theme(self) -> None:
-        """Refresh palette-driven component styling after an application theme change."""
-        self._extract_panel.setStyleSheet(extract_panel_stylesheet())
-        self._detail_panel.setStyleSheet(detail_panel_stylesheet())
-        self._apply_table_font()
-        for result_tab in self._result_tab_widgets():
-            result_tab.refresh_theme()
-        self.update()
-
-    def _set_gui_theme(self, theme: str) -> None:
-        app = QApplication.instance()
-        theme = apply_application_theme(app, theme)
-        self._gui_theme = theme
-        save_theme_name(theme)
-        self._sync_theme_menu_checks()
-        apply_application_font_pt(self._app_font_pt)
-
-    def open_structure_settings(self) -> None:
-        prev_w, prev_h = structure_width(), structure_height()
-        dlg = StructureSettingsDialog(prev_w, prev_h, self)
-        dlg.size_previewed.connect(
-            lambda w, h: self.apply_structure_size(w, h, persist=False)
-        )
-        if dlg.exec() == QDialog.Accepted:
-            self.apply_structure_size(
-                dlg.selected_width(), dlg.selected_height(), persist=True
-            )
-        else:
-            self.apply_structure_size(prev_w, prev_h, persist=False)
-        self.status_label.setText(
-            f"Structure image size — {structure_width()}×{structure_height()} px"
-        )
-
-    def apply_structure_size(
-        self, width: int, height: int, *, persist: bool = True
-    ) -> None:
-        set_structure_size(width, height, persist=persist)
-        for result_tab in self._result_tab_widgets():
-            result_tab.apply_structure_layout()
-            result_tab.rerender_structures()
-        self._refresh_selected_detail()
-
-    def open_font_dialog(self) -> None:
-        prev_app = self._app_font_pt
-        prev_table = self._table_font_pt
-        dlg = FontSettingsDialog(prev_app, prev_table, self)
-        dlg.app_font_size_previewed.connect(self._preview_app_font)
-        dlg.table_font_size_previewed.connect(self._preview_table_font)
-        if dlg.exec() == QDialog.Accepted:
-            self._set_app_font_pt(dlg.selected_app_point_size())
-            self._set_table_font_pt(dlg.selected_table_point_size())
-        else:
-            self._set_app_font_pt(prev_app, persist=False)
-            self._set_table_font_pt(prev_table, persist=False)
-        self.status_label.setText(
-            f"Font size — application: {self._app_font_pt} pt, table: {self._table_font_pt} pt"
-        )
-
-    def _preview_app_font(self, pt: int) -> None:
-        self._set_app_font_pt(pt, persist=False)
-
-    def _preview_table_font(self, pt: int) -> None:
-        self._set_table_font_pt(pt, persist=False)
-
-    def _set_app_font_pt(self, pt: int, *, persist: bool = True) -> None:
-        self._app_font_pt = apply_application_font_pt(pt)
-        if persist:
-            save_app_font_pt(self._app_font_pt)
-
-    def _set_table_font_pt(self, pt: int, *, persist: bool = True) -> None:
-        self._table_font_pt = int(pt)
-        self._apply_table_font()
-        if persist:
-            save_table_font_pt(self._table_font_pt)
-
-    def _apply_table_font(self) -> None:
-        for result_tab in self._result_tab_widgets():
-            result_tab.apply_table_font(self._table_font_pt)
 
     def show_user_guide(self) -> None:
         QMessageBox.information(
@@ -568,10 +418,6 @@ class MainWindow(QMainWindow):
             "Use <b>File → Export CSV…</b>, <b>Export SDF…</b>, or <b>Export SMILES…</b> "
             "to save the extracted structures and metadata in a format suitable for further "
             "analysis or workflow integration.</p>"
-            "<p><b>8. Customize the interface</b><br>"
-            "Open <b>Settings → GUI</b> to switch between Light, Dark, and Groovy themes. "
-            "Your choice is remembered when you reopen the app. Structure rendering and font "
-            "settings are also available under Settings.</p>"
             "<p><b>Tips</b><br>"
             "- Install Poppler for PDF rendering support.<br>"
             "- On Python 3.10/3.11, OpenChemIE may require a manual torch 2.x workaround "
@@ -588,7 +434,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open patent PDF",
-            self._last_dir(),
+            self._last_dir,
             "PDF files (*.pdf);;All files (*.*)",
         )
         if not path:
@@ -597,7 +443,7 @@ class MainWindow(QMainWindow):
 
     def _set_pdf_path(self, path: str) -> None:
         self._pdf_path = path
-        self._set_last_dir(path)
+        self._last_dir = str(Path(path).parent)
         self._pdf_label.setText(Path(path).name)
         self._pdf_label.setToolTip(path)
         self.status_label.setText(f"Opened {Path(path).name}")
@@ -684,9 +530,7 @@ class MainWindow(QMainWindow):
         if not isinstance(result, ExtractionResult):
             self._extraction_controller.handle_failed("Unexpected extraction result.")
             return
-        result_tab = self._results_controller.add_result(
-            result, table_font_pt=self._table_font_pt
-        )
+        result_tab = self._results_controller.add_result(result)
         self._set_active_result_tab(self._result_tabs.currentIndex())
         self._detail_panel.show()
         if result.molecules:
@@ -701,9 +545,6 @@ class MainWindow(QMainWindow):
             f"{Path(result.pdf_path).name}: {len(result.molecules)} molecule(s), "
             f"{len(result.reactions)} reaction(s).{warn}"
         )
-
-    def _result_tab_widgets(self) -> list[ExtractionResultTab]:
-        return self._results_controller.result_tab_widgets()
 
     def _set_active_result_tab(self, index: int | None) -> None:
         result_tab = self._results_controller.active_result_tab(index)
@@ -765,7 +606,7 @@ class MainWindow(QMainWindow):
         if molecules is None:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, dialog_title, self._last_dir(), file_filter
+            self, dialog_title, self._last_dir, file_filter
         )
         if not path:
             return
@@ -779,7 +620,7 @@ class MainWindow(QMainWindow):
                 f"Could not export to:\n{path}\n\n{exc}",
             )
             return
-        self._set_last_dir(path)
+        self._last_dir = str(Path(path).parent)
         self.status_label.setText(success_message(path, result))
 
     def export_csv(self) -> None:

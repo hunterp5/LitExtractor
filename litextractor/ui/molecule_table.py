@@ -19,9 +19,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPixmap
+from PySide6.QtGui import QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
-    QApplication,
     QHeaderView,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -30,11 +29,11 @@ from PySide6.QtWidgets import (
 
 from ..chemistry import molecule_quality_score, parse_mol, prioritize_molecules
 from ..models import ExtractedMolecule
-from ..structure_layout import (
-    structure_column_minimum_width,
-    structure_height,
-    structure_row_height,
-    structure_width,
+from ..structure_dimensions import (
+    STRUCTURE_COLUMN_WIDTH,
+    STRUCTURE_HEIGHT,
+    STRUCTURE_ROW_HEIGHT,
+    STRUCTURE_WIDTH,
 )
 from ..structure_draw import render_molecule_png
 from .qt_widget_utils import pixmap_from_png
@@ -61,7 +60,7 @@ def render_structure_pixmap(rec: ExtractedMolecule) -> QPixmap:
         mol = parse_mol(smiles=rec.smiles, molfile=rec.molfile)
         if mol is None:
             return QPixmap()
-        png = render_molecule_png(mol, structure_width(), structure_height())
+        png = render_molecule_png(mol, STRUCTURE_WIDTH, STRUCTURE_HEIGHT)
         return pixmap_from_png(png)
     except Exception:
         return QPixmap()
@@ -71,7 +70,7 @@ def render_crop_pixmap(pixmap: QPixmap) -> QPixmap:
     """Fit a patent crop into a transparent canvas matching the Structure image size."""
     if pixmap.isNull():
         return QPixmap()
-    canvas = QPixmap(structure_width(), structure_height())
+    canvas = QPixmap(STRUCTURE_WIDTH, STRUCTURE_HEIGHT)
     canvas.fill(Qt.transparent)
     scaled = pixmap.scaled(
         canvas.size(),
@@ -201,41 +200,20 @@ class MoleculeTableModel(QAbstractTableModel):
         self._quality_texts = [None] * len(self._rows)
         self.endResetModel()
 
-    def rerender_structures(self) -> None:
-        if not self._rows:
-            return
-        self.beginResetModel()
-        self._pixmaps = [None] * len(self._rows)
-        self.endResetModel()
-
 
 class StructureDelegate(QStyledItemDelegate):
     """Paints cached structure pixmap on a white cell, or a placeholder."""
 
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._cell_background: QColor | None = None
-
-    def set_cell_background(self, color: QColor | None) -> None:
-        self._cell_background = color
-
     def paint(self, painter, option, index) -> None:  # noqa: N802
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
+        painter.fillRect(opt.rect, opt.palette.color(QPalette.Base))
         pix = index.data(Qt.DecorationRole)
-        has_pix = isinstance(pix, QPixmap) and not pix.isNull()
-        if has_pix:
-            bg = QApplication.palette().color(QPalette.Base) if QApplication.instance() else opt.palette.color(QPalette.Base)
-            painter.fillRect(opt.rect, bg)
+        if isinstance(pix, QPixmap) and not pix.isNull():
             x = opt.rect.x() + (opt.rect.width() - pix.width()) // 2
             y = opt.rect.y() + (opt.rect.height() - pix.height()) // 2
             painter.drawPixmap(x, y, pix)
             return
-        pal = QApplication.palette() if QApplication.instance() else opt.palette
-        bg = (
-            self._cell_background if self._cell_background is not None else pal.color(QPalette.Base)
-        )
-        painter.fillRect(opt.rect, bg)
         text = index.data(Qt.DisplayRole)
         label = text if isinstance(text, str) and text.strip() else "—"
         painter.save()
@@ -258,7 +236,7 @@ class StructureDelegate(QStyledItemDelegate):
             size_w = max(sh.width(), pix.width() + 8)
             size_h = max(sh.height(), pix.height() + 8)
             return QSize(size_w, size_h)
-        return QSize(structure_width(), max(sh.height(), structure_height()))
+        return QSize(STRUCTURE_WIDTH, max(sh.height(), STRUCTURE_HEIGHT))
 
 
 class PatentCropDelegate(QStyledItemDelegate):
@@ -267,8 +245,7 @@ class PatentCropDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index) -> None:  # noqa: N802
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
-        palette = QApplication.palette() if QApplication.instance() else opt.palette
-        painter.fillRect(opt.rect, palette.color(QPalette.Base))
+        painter.fillRect(opt.rect, opt.palette.color(QPalette.Base))
 
         pix = index.data(Qt.DecorationRole)
         if isinstance(pix, QPixmap) and not pix.isNull():
@@ -284,7 +261,7 @@ class PatentCropDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option, index):  # noqa: N802, ARG002
-        return QSize(structure_column_minimum_width(), structure_height())
+        return QSize(STRUCTURE_COLUMN_WIDTH, STRUCTURE_HEIGHT)
 
 
 class MoleculeTableView(QTableView):
@@ -305,26 +282,9 @@ class MoleculeTableView(QTableView):
         self.verticalHeader().setVisible(True)
         self.horizontalHeader().setStretchLastSection(True)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.apply_structure_layout()
+        self.setColumnWidth(COL_STRUCTURE, STRUCTURE_COLUMN_WIDTH)
+        self.setColumnWidth(COL_PATENT_CROP, STRUCTURE_COLUMN_WIDTH)
+        self.verticalHeader().setDefaultSectionSize(STRUCTURE_ROW_HEIGHT)
 
     def molecule_model(self) -> MoleculeTableModel:
         return self._model
-
-    def apply_structure_layout(self) -> None:
-        self.setColumnWidth(COL_STRUCTURE, structure_column_minimum_width())
-        self.setColumnWidth(COL_PATENT_CROP, structure_column_minimum_width())
-        self.verticalHeader().setDefaultSectionSize(structure_row_height())
-        self._delegate.set_cell_background(
-            QApplication.palette().color(QPalette.Base) if QApplication.instance() else None
-        )
-
-    def apply_table_font(self, pt: int) -> None:
-        font = QFont(self.font())
-        font.setPointSize(int(pt))
-        self.setFont(font)
-        self.horizontalHeader().setFont(font)
-        self.verticalHeader().setFont(font)
-
-    def refresh_theme(self) -> None:
-        self.apply_structure_layout()
-        self.viewport().update()

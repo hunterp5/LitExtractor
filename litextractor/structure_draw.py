@@ -21,13 +21,13 @@ from __future__ import annotations
 from rdkit import Chem
 from rdkit.Chem.Draw import rdMolDraw2D
 
-from .structure_dimensions import STRUCTURE_BOND_LINE_WIDTH, structure_width
+from .structure_dimensions import STRUCTURE_BOND_LINE_WIDTH, STRUCTURE_WIDTH
 
 
 def configure_mol_drawer(drawer: rdMolDraw2D.MolDraw2D, target_w: int) -> None:
     """Thinner bonds at table resolution; scale stroke with larger depictions."""
     opts = drawer.drawOptions()
-    base_w = max(1.0, float(structure_width()))
+    base_w = float(STRUCTURE_WIDTH)
     ratio = max(1.0, float(target_w) / base_w)
     opts.bondLineWidth = float(STRUCTURE_BOND_LINE_WIDTH) * ratio
 

@@ -25,7 +25,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QLabel, QTableView, QWidget
 
 from ..models import ExtractedMolecule
-from ..structure_layout import DETAIL_STRUCTURE_HEIGHT, DETAIL_STRUCTURE_WIDTH
+from ..structure_dimensions import DETAIL_STRUCTURE_HEIGHT, DETAIL_STRUCTURE_WIDTH
 from .qt_widget_utils import pixmap_from_png
 
 logger = logging.getLogger(__name__)

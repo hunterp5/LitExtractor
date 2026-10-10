@@ -52,27 +52,13 @@ class ResultTabsController:
         self._startup_page = startup_page
         self._on_molecule_selected = on_molecule_selected
 
-    def result_tab_widgets(self) -> list[ExtractionResultTab]:
-        """Return every extraction tab widget currently hosted."""
-        if self._result_tabs.count() == 0:
-            return []
-        from .extraction_result_tab import ExtractionResultTab
-
-        return [
-            widget
-            for index in range(self._result_tabs.count())
-            if isinstance(widget := self._result_tabs.widget(index), ExtractionResultTab)
-        ]
-
-    def add_result(self, result: ExtractionResult, *, table_font_pt: int) -> ExtractionResultTab:
+    def add_result(self, result: ExtractionResult) -> ExtractionResultTab:
         """Create and activate a new result tab for one extraction run."""
         # Imported lazily so application startup does not load RDKit.
         from .extraction_result_tab import ExtractionResultTab
 
         result_tab = ExtractionResultTab(self._result_tabs)
         result_tab.set_result(result)
-        result_tab.apply_table_font(table_font_pt)
-        result_tab.apply_structure_layout()
         result_tab.molecule_table.selectionModel().selectionChanged.connect(
             self._on_molecule_selected
         )

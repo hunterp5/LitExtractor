@@ -14,4 +14,4 @@
 # You should have received a copy of the GNU General Public License
 # along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Settings and theme dialogs."""
+"""Application dialogs."""

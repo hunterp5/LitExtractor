@@ -20,11 +20,11 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QStandardItem, QSta
 from PySide6.QtWidgets import QStyleOptionViewItem
 
 from litextractor.models import ExtractedMolecule
-from litextractor.structure_layout import (
-    structure_column_minimum_width,
-    structure_height,
-    structure_row_height,
-    structure_width,
+from litextractor.structure_dimensions import (
+    STRUCTURE_COLUMN_WIDTH,
+    STRUCTURE_HEIGHT,
+    STRUCTURE_ROW_HEIGHT,
+    STRUCTURE_WIDTH,
 )
 from litextractor.ui import molecule_table
 from litextractor.ui.molecule_table import (
@@ -91,8 +91,8 @@ def test_patent_crop_delegate_displays_consistent_aspect_preserving_thumbnails(q
     view = MoleculeTableView()
     delegate = view.itemDelegateForColumn(COL_PATENT_CROP)
     assert isinstance(delegate, PatentCropDelegate)
-    assert view.columnWidth(COL_PATENT_CROP) == structure_column_minimum_width()
-    assert view.verticalHeader().defaultSectionSize() == structure_row_height()
+    assert view.columnWidth(COL_PATENT_CROP) == STRUCTURE_COLUMN_WIDTH
+    assert view.verticalHeader().defaultSectionSize() == STRUCTURE_ROW_HEIGHT
 
     model = QStandardItemModel()
     landscape = QPixmap(200, 50)
@@ -113,21 +113,21 @@ def test_patent_crop_delegate_displays_consistent_aspect_preserving_thumbnails(q
         for pixmap in (landscape, portrait)
         for scaled in [
             pixmap.scaled(
-                structure_width(),
-                structure_height(),
+                STRUCTURE_WIDTH,
+                STRUCTURE_HEIGHT,
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation,
             )
         ]
     )
     assert all(
-        (pixmap.width(), pixmap.height()) == (structure_width(), structure_height())
+        (pixmap.width(), pixmap.height()) == (STRUCTURE_WIDTH, STRUCTURE_HEIGHT)
         for pixmap in rendered_crops
     )
     for row, expected_size in enumerate(expected_bounds):
         image = QImage(
             view.columnWidth(COL_PATENT_CROP),
-            structure_height() + 20,
+            STRUCTURE_HEIGHT + 20,
             QImage.Format_ARGB32,
         )
         image.fill(QColor("white"))

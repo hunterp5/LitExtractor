@@ -25,6 +25,7 @@ from types import SimpleNamespace
 
 from rdkit import Chem
 
+from litextractor.structure_dimensions import STRUCTURE_WIDTH
 from litextractor.structure_draw import configure_mol_drawer, render_molecule_png
 
 
@@ -66,11 +67,7 @@ assert not any(name == "PySide6" or name.startswith("PySide6.") for name in sys.
     )
 
 
-def test_drawer_bond_width_tracks_layout_dimensions():
-    from litextractor.structure_layout import set_structure_size, structure_height, structure_width
-
-    old_width, old_height = structure_width(), structure_height()
-
+def test_drawer_bond_width_scales_with_target_width():
     class FakeDrawer:
         def __init__(self):
             self.options = SimpleNamespace()
@@ -78,10 +75,6 @@ def test_drawer_bond_width_tracks_layout_dimensions():
         def drawOptions(self):
             return self.options
 
-    try:
-        set_structure_size(100, 100, persist=False)
-        drawer = FakeDrawer()
-        configure_mol_drawer(drawer, target_w=200)
-        assert drawer.options.bondLineWidth == 2.0
-    finally:
-        set_structure_size(old_width, old_height, persist=False)
+    drawer = FakeDrawer()
+    configure_mol_drawer(drawer, target_w=STRUCTURE_WIDTH * 2)
+    assert drawer.options.bondLineWidth == 2.0

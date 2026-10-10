@@ -67,6 +67,10 @@ The following remediation is currently in the worktree and has not yet been comm
 
 This remediation is tracked as a separate audit-fix set from the earlier runtime-cache change.
 
+## Settings, theme, and customization removal
+
+The application no longer has a Settings menu or any persisted preferences. Removed: `settings.py` (`QSettings`), `structure_layout.py`, the Structure and Font dialogs, the Light/Dark/Groovy theme machinery (palettes, window filter, native title-bar coloring, theme/font persistence), and the remembered last-used folder (the folder is now kept in memory for the session). Structure sizes are fixed constants in `structure_dimensions.py`; `ui/theme.py` only provides the light palette, two stylesheets, and `apply_light_theme()`, which also forces Qt's light color scheme so the window chrome stays light on a dark OS. Existing saved `LitExtractor` preferences in the registry are simply ignored. Superseded earlier rows (QSettings test isolation, three-theme support, `structure_layout` Qt settings facade) no longer apply.
+
 ## Dead-code and compatibility cleanup
 
 Removed (callers now import from the defining module):

@@ -63,7 +63,7 @@ from PySide6.QtWidgets import QApplication
 
 from .app_logging import configure_app_logging, install_crash_excepthook
 from .ui.main_window import APP_NAME, MainWindow
-from .ui.theme import initialize_application_theme
+from .ui.theme import apply_light_theme
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv)
     app.setOrganizationName(APP_NAME)
     app.setApplicationName(APP_NAME)
-    initialize_application_theme(app)
+    apply_light_theme(app)
     window = MainWindow()
     window.show()
     QTimer.singleShot(0, window.start_cuda_probe)

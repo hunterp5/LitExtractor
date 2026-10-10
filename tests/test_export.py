@@ -71,7 +71,7 @@ def test_export_failure_is_reported_and_does_not_change_last_dir(
         ExtractionResult(pdf_path="demo.pdf", molecules=[_ethanol()], reactions=[])
     )
     output_path = tmp_path / "blocked.csv"
-    previous_dir = window._last_dir()
+    previous_dir = window._last_dir
     errors: list[str] = []
 
     monkeypatch.setattr(
@@ -94,5 +94,5 @@ def test_export_failure_is_reported_and_does_not_change_last_dir(
     assert len(errors) == 1
     assert str(output_path) in errors[0]
     assert "permission denied" in errors[0]
-    assert window._last_dir() == previous_dir
+    assert window._last_dir == previous_dir
     window.close()
