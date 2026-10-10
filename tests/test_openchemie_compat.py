@@ -223,3 +223,42 @@ def test_parent_figure_crop_expansion_uses_page_pixels_and_clips_at_page_edge():
     edge_block = lp.TextBlock(lp.Rectangle(110, 10, 119, 40), type="Figure")
     edge_layout = _layout_with_source_context(lp.Layout([edge_block]), page, margin_fraction=0.5)
     assert edge_layout[0].coordinates == (105, 0, 120, 55)
+
+
+def test_compat_facade_reexports_focused_modules():
+    from litextractor import (
+        compat_checkpoint,
+        compat_figures,
+        compat_pdf_text,
+        openchemie_compat,
+    )
+
+    for module in (compat_checkpoint, compat_figures, compat_pdf_text):
+        for name in vars(module):
+            if name in openchemie_compat.__all__:
+                assert getattr(openchemie_compat, name) is getattr(module, name)
+    for name in openchemie_compat.__all__:
+        assert hasattr(openchemie_compat, name)
+
+
+def test_prepare_openchemie_imports_applies_patches_in_order(monkeypatch):
+    from litextractor import openchemie_compat
+
+    calls: list[str] = []
+    ordered = (
+        "preload_pdftotext",
+        "ensure_chemrxnextractor_importable",
+        "patch_torch_load_weights_only_default",
+        "patch_transformers_torch_load_check",
+        "patch_iopath_http_cache_filenames",
+        "patch_empty_molscribe_results",
+        "patch_openchemie_layout_crop_context",
+        "patch_openchemie_figure_fallback",
+        "patch_openchemie_molecule_crops",
+    )
+    for name in ordered:
+        monkeypatch.setattr(openchemie_compat, name, lambda name=name: calls.append(name))
+
+    openchemie_compat.prepare_openchemie_imports()
+
+    assert calls == list(ordered)

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QSettings, Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -55,7 +55,6 @@ from PySide6.QtWidgets import (
 from ..crop_context import DEFAULT_MOLECULE_CROP_MARGIN
 from ..structure_layout import (
     DETAIL_STRUCTURE_HEIGHT,
-    DETAIL_STRUCTURE_WIDTH,
     load_saved_structure_size,
     set_structure_size,
     structure_height,
@@ -67,7 +66,9 @@ from ..workers.cuda_probe_worker import CudaAvailabilityWorker
 from .dialogs.citations import CitationsDialog
 from .dialogs.font_settings import FontSettingsDialog
 from .dialogs.structure_settings import StructureSettingsDialog
-from .qt_widget_utils import pixmap_from_png
+from .detail_panel_presenter import DetailPanelPresenter
+from .extraction_controller import ExtractionController
+from .result_tabs_controller import ResultTabsController
 from .startup_page import StartupPage
 from .theme import (
     THEME_DARK,
@@ -145,9 +146,41 @@ class MainWindow(QMainWindow):
 
         self._build_menus()
         self._build_central()
+        self.status_label = getattr(
+            self, "_extract_status", QLabel("Ready — open a patent PDF to extract structures.")
+        )
+        self._detail_presenter = DetailPanelPresenter(
+            detail_structure=self._detail_structure,
+            detail_crop=self._detail_crop,
+            detail_crop_card=self._detail_crop_card,
+            detail_values=self._detail_values,
+        )
+        self._results_controller = ResultTabsController(
+            parent=self,
+            app_name=APP_NAME,
+            result_tabs=self._result_tabs,
+            results_stack=self._results_stack,
+            startup_page=self._startup_page,
+            on_molecule_selected=self._on_molecule_selected,
+        )
+        self._extraction_controller = ExtractionController(
+            parent=self,
+            app_name=APP_NAME,
+            extract_button=self._extract_btn,
+            cancel_button=self._cancel_btn,
+            progress_bar=self._progress,
+            extract_status=self._extract_status,
+            status_label=self.status_label,
+            result_tabs=self._result_tabs,
+            startup_page=self._startup_page,
+            results_stack=self._results_stack,
+            get_worker=lambda: self._worker,
+            set_worker=lambda worker: setattr(self, "_worker", worker),
+            get_close_after_worker=lambda: self._close_after_worker,
+            set_close_after_worker=lambda value: setattr(self, "_close_after_worker", value),
+        )
         apply_application_theme(QApplication.instance(), self._gui_theme)
         self._set_active_result_tab(None)
-        self.status_label = getattr(self, "_extract_status", QLabel("Ready — open a patent PDF to extract structures."))
         self.statusBar().hide()
         self._apply_table_font()
         self.refresh_theme()
@@ -459,7 +492,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(scroll, 1)
 
         self._detail_panel = panel
-        self._clear_detail()
         panel.hide()
         return panel
 
@@ -678,74 +710,46 @@ class MainWindow(QMainWindow):
         if not (opts.figures or opts.text or opts.reactions or opts.corefs):
             QMessageBox.information(self, APP_NAME, "Select at least one extraction source.")
             return
-        from ..workers.extract_worker import ExtractWorker
-
-        self._set_busy(True)
-        self._extract_status.setText("Starting…")
-        self._worker = ExtractWorker(self._pdf_path, opts, self)
-        self._worker.progress.connect(self._on_extract_progress)
-        self._worker.finished_ok.connect(self._on_extract_finished)
-        self._worker.failed.connect(self._on_extract_failed)
-        self._worker.cancelled.connect(self._on_extract_cancelled)
-        self._worker.finished.connect(self._on_worker_thread_finished)
-        self._worker.start()
+        self._extraction_controller.start_worker(
+            pdf_path=self._pdf_path,
+            options=opts,
+            on_progress=self._on_extract_progress,
+            on_finished=self._on_extract_finished,
+            on_failed=self._on_extract_failed,
+            on_cancelled=self._on_extract_cancelled,
+            on_thread_finished=self._on_worker_thread_finished,
+        )
 
     def cancel_extraction(self) -> None:
-        worker = self._worker
-        if worker is not None and worker.isRunning():
-            worker.requestInterruption()
-            self._extract_status.setText("Cancel requested — waiting for the current step…")
-            self.status_label.setText("Cancel requested.")
+        self._extraction_controller.cancel_worker()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
-        worker = self._worker
-        if worker is not None and worker.isRunning():
-            self._close_after_worker = True
-            self.cancel_extraction()
-            event.ignore()
+        if self._extraction_controller.handle_close_event(event):
             return
         super().closeEvent(event)
 
     def _on_worker_thread_finished(self) -> None:
-        self._set_busy(False)
-        if self._close_after_worker:
-            self._close_after_worker = False
-            self.close()
+        self._extraction_controller.handle_worker_thread_finished()
 
     def _set_busy(self, busy: bool) -> None:
-        self._extract_btn.setEnabled(not busy)
-        self._cancel_btn.setEnabled(busy)
-        self._progress.setVisible(busy)
+        self._extraction_controller.set_busy(busy)
 
     def _on_extract_progress(self, message: str) -> None:
-        self._extract_status.setText(message)
-        self.status_label.setText(message)
-        if self._result_tabs.count() == 0:
-            self._startup_page.set_loading(True, message)
-            self._results_stack.setCurrentWidget(self._startup_page)
+        self._extraction_controller.handle_progress(message)
 
     def _on_extract_finished(self, result: object) -> None:
         if not isinstance(result, ExtractionResult):
             self._on_extract_failed("Unexpected extraction result.")
             return
-        from .extraction_result_tab import ExtractionResultTab
-
-        result_tab = ExtractionResultTab(self._result_tabs)
-        result_tab.set_result(result)
-        result_tab.apply_table_font(self._table_font_pt)
-        result_tab.apply_structure_layout()
-        result_tab.molecule_table.selectionModel().selectionChanged.connect(
-            self._on_molecule_selected
+        result_tab = self._results_controller.add_result(
+            result, table_font_pt=self._table_font_pt
         )
-        self._result_tabs.addTab(result_tab, Path(result.pdf_path).name)
-        self._result_tabs.setCurrentWidget(result_tab)
-        self._results_stack.setCurrentWidget(self._result_tabs)
+        self._set_active_result_tab(self._result_tabs.currentIndex())
         self._detail_panel.show()
         if result.molecules:
             result_tab.molecule_table.selectRow(0)
         else:
-            self._clear_detail()
-        self._startup_page.set_loading(False)
+            self._detail_presenter.clear_detail()
         warn = ""
         if result.warnings:
             warn = " Warnings: " + "; ".join(result.warnings)
@@ -756,48 +760,22 @@ class MainWindow(QMainWindow):
         )
 
     def _on_extract_failed(self, message: str) -> None:
-        self._extract_status.setText(message)
-        self.status_label.setText("Extraction failed.")
-        if self._result_tabs.count() == 0:
-            self._startup_page.set_loading(False, message)
-            self._results_stack.setCurrentWidget(self._startup_page)
-        QMessageBox.critical(self, APP_NAME, message)
+        self._extraction_controller.handle_failed(message)
 
     def _on_extract_cancelled(self) -> None:
-        self._extract_status.setText("Extraction cancelled.")
-        self.status_label.setText("Extraction cancelled.")
-        if self._result_tabs.count() == 0:
-            self._startup_page.set_loading(False)
-            self._results_stack.setCurrentWidget(self._startup_page)
+        self._extraction_controller.handle_cancelled()
 
     def _result_tab_widgets(self) -> list[ExtractionResultTab]:
-        if self._result_tabs.count() == 0:
-            return []
-        from .extraction_result_tab import ExtractionResultTab
-
-        return [
-            widget
-            for index in range(self._result_tabs.count())
-            if isinstance(widget := self._result_tabs.widget(index), ExtractionResultTab)
-        ]
+        return self._results_controller.result_tab_widgets()
 
     def _set_active_result_tab(self, index: int | None) -> None:
-        result_tab = (
-            self._result_tabs.widget(index)
-            if index is not None and 0 <= index < self._result_tabs.count()
-            else None
-        )
-        if result_tab is not None:
-            from .extraction_result_tab import ExtractionResultTab
-
-            if not isinstance(result_tab, ExtractionResultTab):
-                result_tab = None
+        result_tab = self._results_controller.active_result_tab(index)
         self._active_result_tab = result_tab
         self._mol_table = result_tab.molecule_table if result_tab is not None else None
         self._rxn_table = result_tab.reaction_table if result_tab is not None else None
         self._result = result_tab.result if result_tab is not None else None
         if result_tab is None:
-            self._clear_detail()
+            self._detail_presenter.clear_detail()
             self._detail_panel.hide()
         else:
             self._detail_panel.show()
@@ -806,38 +784,26 @@ class MainWindow(QMainWindow):
         self._set_active_result_tab(index)
         if self._active_result_tab is None:
             if self._result_tabs.count() == 0:
-                self._results_stack.setCurrentWidget(self._startup_page)
+                self._results_controller.set_startup_view()
             return
         self._refresh_selected_detail()
 
     def _show_result_tab_context_menu(self, position: QPoint) -> None:
-        index = self._result_tabs.tabBar().tabAt(position)
-        if index < 0:
-            return
-        menu = QMenu(self)
-        close_action = menu.addAction("Close tab")
-        if menu.exec(self._result_tabs.tabBar().mapToGlobal(position)) is close_action:
+        index = self._results_controller.show_context_menu(position, menu_factory=QMenu)
+        if index is not None:
             self._confirm_delete_result_tab(index)
 
     def _confirm_delete_result_tab(self, index: int) -> None:
-        if not 0 <= index < self._result_tabs.count():
+        deleted = self._results_controller.confirm_delete(index)
+        if not deleted:
             return
-        name = self._result_tabs.tabText(index)
-        answer = QMessageBox.question(
-            self,
-            APP_NAME,
-            f"Delete '{name}'?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
-            return
-        result_tab = self._result_tabs.widget(index)
-        self._result_tabs.removeTab(index)
-        result_tab.deleteLater()
         if self._result_tabs.count() == 0:
             self._set_active_result_tab(None)
-            self._results_stack.setCurrentWidget(self._startup_page)
+            self._results_controller.set_startup_view()
+            return
+        current_index = self._result_tabs.currentIndex()
+        self._set_active_result_tab(current_index if current_index >= 0 else None)
+        self._refresh_selected_detail()
 
     def _on_result_tab_selected(self, *_args) -> None:
         self._refresh_selected_detail()
@@ -846,69 +812,13 @@ class MainWindow(QMainWindow):
         self._refresh_selected_detail()
 
     def _selected_molecule(self) -> ExtractedMolecule | None:
-        if self._mol_table is None:
-            return None
-        indexes = self._mol_table.selectionModel().selectedRows()
-        if not indexes:
-            return None
-        return self._mol_table.molecule_model().molecule_at(indexes[0].row())
+        return self._detail_presenter.selected_molecule(self._mol_table)
 
     def _refresh_selected_detail(self) -> None:
-        rec = self._selected_molecule()
-        if rec is None:
-            self._clear_detail()
-            return
-        from ..chemistry import molecule_quality_score, parse_mol
-        from ..structure_draw import render_molecule_png
-
-        mol = parse_mol(smiles=rec.smiles, molfile=rec.molfile)
-        png = b""
-        if mol is not None:
-            try:
-                png = render_molecule_png(mol, DETAIL_STRUCTURE_WIDTH, DETAIL_STRUCTURE_HEIGHT)
-            except Exception:
-                logger.debug("Detail structure render failed", exc_info=True)
-        if png:
-            self._detail_structure.setPixmap(pixmap_from_png(png))
-            self._detail_structure.setText("")
-        else:
-            self._detail_structure.setPixmap(QPixmap())
-            self._detail_structure.setText("No structure")
-        if rec.crop_png:
-            crop = pixmap_from_png(rec.crop_png)
-            self._detail_crop.setPixmap(
-                crop.scaled(320, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
-            self._detail_crop.setText("")
-            self._detail_crop_card.show()
-        else:
-            self._detail_crop.setPixmap(QPixmap())
-            self._detail_crop.setText("—")
-            self._detail_crop_card.hide()
-        page = "; ".join(str(page_number) for page_number in rec.page_numbers) or "—"
-        score = f"{molecule_quality_score(rec):.3f}"
-        mw = "—" if rec.molecular_weight is None else f"{rec.molecular_weight:.3f}"
-        source = "; ".join(rec.sources) if rec.sources else rec.source
-        values = {
-            "Identifier": rec.identifier or "—",
-            "Page": page,
-            "Source": source or "—",
-            "Quality": score,
-            "Formula": rec.formula or "—",
-            "Molecular weight": mw,
-            "InChIKey": rec.inchi_key or "—",
-        }
-        for name, value in values.items():
-            self._detail_values[name].setText(value)
+        self._detail_presenter.refresh_selected_detail(self._mol_table)
 
     def _clear_detail(self) -> None:
-        self._detail_structure.setPixmap(QPixmap())
-        self._detail_structure.setText("Select a molecule")
-        self._detail_crop.setPixmap(QPixmap())
-        self._detail_crop.setText("—")
-        self._detail_crop_card.hide()
-        for value in self._detail_values.values():
-            value.setText("—")
+        self._detail_presenter.clear_detail()
 
     def _require_molecules(self) -> list[ExtractedMolecule] | None:
         mols = (
