@@ -28,16 +28,16 @@ The project has useful boundaries between shared records, chemistry, extraction,
 | Medium | `MainWindow` owns widget construction, settings, extraction lifecycle, results, and export. [Source](../patentextractor/ui/main_window.py) | Open | Extract focused view/controller components incrementally; preserve public behavior. |
 | Medium | A completed extraction replaced the prior visible tables, making it difficult to compare multiple runs in one session. | Done | Each run is retained in its own result tab, right-click deletion requires confirmation, and exports use the active result tab. The molecule/reaction pair is owned by [ExtractionResultTab](../patentextractor/ui/extraction_result_tab.py). |
 | Medium | `extraction.py` mixed vendor-result parsing, image conversion/cropping, PDF slicing, runtime setup, orchestration, molecule merging, and coreference linking. [Orchestration facade](../patentextractor/extraction.py) · [Result normalization](../patentextractor/extraction_results.py) · [Coreference linking](../patentextractor/extraction_coreference.py) · [PDF slicing](../patentextractor/extraction_pdf.py) · [Runtime setup](../patentextractor/extraction_runtime.py) | Done | Result normalization, coreference linking, PDF-window handling, and runtime setup are focused modules; `extraction.py` now coordinates the extraction pipeline and re-exports the existing compatibility API. |
-| Medium | `openchemie_compat.py` combines shims, downloads, monkey patches, text parsing, and geometry/layout patches. [Compatibility facade](../patentextractor/openchemie_compat.py) · [HTTP weights](../patentextractor/http_weights.py) | In progress | The model-weight URL/download/cache concern is now isolated; continue separating other cohesive concerns while retaining the preparation entry point. |
+| Medium | `openchemie_compat.py` combines shims, downloads, monkey patches, text parsing, and geometry/layout patches. [Compatibility facade](../patentextractor/openchemie_compat.py) · [HTTP weights](../patentextractor/http_weights.py) | In progress | The model-weight URL/download/cache concern is isolated and its compatibility tests now pass; continue separating other cohesive concerns while retaining the preparation entry point. |
 | Medium | Reaction payload parsing trusts nested values to have the expected shape; malformed vendor data can discard a stage's results. [Source](../patentextractor/extraction.py) | Done | Nested mappings/lists and page values are validated; malformed entries are logged and skipped individually. |
 | Medium | Coreference pair parsing accepts negative indices and can abort on non-integer values. [Source](../patentextractor/extraction.py) | Done | Page, box, and pair inputs are validated; negative, fractional, non-integer, and out-of-range indices are skipped with warnings. |
 | Medium | Merging kept only one page and could omit source entries when records already carried multiple sources; ranking used the retained page. | Done | Preserve sorted page numbers and all sources, keep `page` as the earliest-page compatibility field, rank by earliest page, and surface all pages in UI/exports. |
 | Medium | `ExtractOptions` accepted invalid ranges when called outside the UI (for example negative page counts or molecule limits). | Done | Validate options at construction and before extraction; `first_page` starts at 1, page/cap zero means unlimited, batch size is positive, and crop margin is finite within the UI's 0–50% range. |
-| Low | `structure_draw.py` says it is Qt-free but imports sizing from `structure_layout.py`, which loads `QSettings` at import time. | Open | Move pure rendering constants out of the Qt settings module or inject sizing at the UI boundary. |
-| Low | The Windows DLL setup discards `os.add_dll_directory()` handles and suppresses all setup exceptions. | Open | Retain handles for process lifetime and log recoverable failures. |
+| Low | `structure_draw.py` says it is Qt-free but imports sizing from `structure_layout.py`, which loads `QSettings` at import time. [Source](../patentextractor/structure_draw.py) · [Dimensions](../patentextractor/structure_dimensions.py) | Done | Shared dimensions and runtime size state now live in a pure module; `structure_layout.py` retains the Qt settings facade and `structure_draw.py` imports no Qt modules. Covered by subprocess import-isolation and dynamic sizing tests. |
+| Low | The Windows DLL setup discards `os.add_dll_directory()` handles and suppresses all setup exceptions. [Source](../patentextractor/bootstrap.py) | Done | Retain registered handles for process lifetime, log a failure per directory, and continue setup for remaining Qt DLL locations; covered by Windows-path-mocked tests. |
 | Low | OpenCV GUI and headless wheels are both direct dependencies. | Open | Select one distribution and keep dependency declarations aligned. |
 | Low | Ruff has a 100-character setting but does not enable a line-length check; Pylance reports Qt override signature issues and dynamic compatibility typing noise. | Open | Enforce the intended line policy and address actionable typing findings without obscuring intentional runtime shims. |
-| Low | A theme helper family appears unused; some short locals in vendor-adapter code are less descriptive than surrounding names. | Open | Confirm compatibility requirements, remove dead helpers if safe, and prefer names like `current_index`/`extracted_items`. |
+| Low | Theme configuration had unused helper families, random Groovy palettes, custom-theme persistence, and local reset workarounds. [Source](../patentextractor/ui/theme.py) | Done | The app now has exactly three themes, deterministic Light/Dark palettes, a randomized multi-hue Groovy palette, persisted startup selection, and app-wide palette propagation; obsolete custom-theme code and unused helpers were removed. |
 
 ## Work started
 
@@ -60,6 +60,9 @@ The following remediation is currently in the worktree and has not yet been comm
 - Added construction-time extraction-option validation and retained all merged molecule pages/sources through ranking, display, and export while preserving the legacy earliest `page` field.
 - Enabled figure–label coreferences by default and kept each successful extraction in a separate result tab with confirmed deletion and active-tab-only exports.
 - Extracted LayoutParser weight metadata, URL conversion, HTML detection, robust downloads, and iopath cache patching into `http_weights.py`; `openchemie_compat.py` re-exports the prior helper names and remains the setup entry point. Added a regression test for those compatibility aliases.
+- Retained Windows `os.add_dll_directory()` handles for process lifetime and replaced silent setup failure with per-directory warnings and continued registration.
+- Moved drawing dimensions and runtime size state to pure-Python `structure_dimensions.py`; `structure_draw.py` no longer imports Qt or reads `QSettings` during import.
+- Replaced duplicate runtime helper implementations in `extraction.py` with explicit `extraction_runtime.py` re-exports, restoring identity compatibility and updating the CUDA fallback test to patch its owner module.
 
 This remediation is tracked as a separate audit-fix set from the earlier runtime-cache change.
 
@@ -67,7 +70,7 @@ The prior, pre-audit work was committed as `4d7483b` (`Cache and serialize OpenC
 
 ## Validation history
 
-- Last completed validation before the current HTTP-weight split: default suite **80 passed, 1 skipped**; `ruff check patentextractor tests` passed. Re-validation after the current split is pending.
+- Latest full validation after the HTTP-weight, bootstrap DLL-lifetime, extraction runtime re-export, and pure structure-dimensions changes: default suite **100 passed, 1 skipped**; `ruff check patentextractor tests` passed.
 - VS Code's file diagnostics reported no errors in the modified Python files.
 - Six third-party deprecation/future warnings were emitted by installed dependencies during tests.
 - The first broad audit test run happened before QSettings isolation was added and cleared the saved theme key. Future suite runs use a temporary settings directory; restore the desired theme in the app if the previous preference was not Light/default.
@@ -75,6 +78,6 @@ The prior, pre-audit work was committed as `4d7483b` (`Cache and serialize OpenC
 
 ## Follow-up sequence
 
-1. Validate the HTTP-weight split, then continue assessing `openchemie_compat.py` and UI decomposition in small steps, retaining compatibility entry points and regression tests.
-2. Separate Qt settings from pure drawing/layout behavior; clean up dependency and type/lint policy.
-3. Re-run default tests and Ruff after each coherent change; run integration tests only when local models and required system tools are available.
+1. Continue assessing `openchemie_compat.py` and `MainWindow` decomposition in small steps, retaining compatibility entry points and regression tests.
+2. Investigate dependency constraints before consolidating the OpenCV distributions; the current upstream metadata requests both variants.
+3. Assess Ruff's line-length policy and remaining diagnostics, then re-run default tests and Ruff after each coherent change. Run integration tests only when local models and required system tools are available.

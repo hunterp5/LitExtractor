@@ -11,6 +11,7 @@ PatentExtractor is a desktop application for finding chemical structures and rel
 - Export molecule data to CSV, SDF, or SMILES.
 - Choose CPU or CUDA for model inference and customize the application theme and structure display.
 - A simple centered workspace message shows when to open a PDF and reports initial extraction progress.
+- View recommended software and research citations from **Help → Citations**.
 
 OpenChemIE models are large and can be slow on CPU. Model weights may be downloaded the first time extraction runs. The GUI can still start when optional extraction dependencies are unavailable; it reports missing runtime components when extraction is requested.
 
@@ -78,7 +79,12 @@ After an editable installation, the `patentextractor` console command is also av
 
 Molecule crop expansion is **0% by default**: the detected molecule box is not enlarged before cropping. Users can choose a larger margin in the Extract panel. A separate fixed 8% context margin is applied earlier to parent figure regions for layout detection; it is not controlled by the molecule crop setting. Both crop stages use source-image pixels and clip at image boundaries.
 
-The interface includes Light, Dark, Groovy, and custom color themes. Structure size and fonts can be adjusted in Settings.
+The interface includes exactly three themes: Light, Dark, and Groovy. The selected theme is saved
+between app sessions and applies to the application UI and Qt dialogs. File pickers retain their
+native operating-system appearance. On Windows, the system title bar is themed where the installed
+Windows version supports it; other window managers control native window decorations. Structure
+size and fonts can be adjusted in Settings. Use **Help → Citations** for the application’s core
+technology references.
 
 ## Tests
 

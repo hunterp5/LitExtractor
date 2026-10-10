@@ -21,7 +21,7 @@ from __future__ import annotations
 from rdkit import Chem
 from rdkit.Chem.Draw import rdMolDraw2D
 
-from .structure_layout import STRUCTURE_BOND_LINE_WIDTH, structure_width
+from .structure_dimensions import STRUCTURE_BOND_LINE_WIDTH, structure_width
 
 
 def configure_mol_drawer(drawer: rdMolDraw2D.MolDraw2D, target_w: int) -> None:

@@ -28,6 +28,7 @@ class StartupPage(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("WelcomePage")
+        self.setAutoFillBackground(True)
 
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)

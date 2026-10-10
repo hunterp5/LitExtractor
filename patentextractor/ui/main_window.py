@@ -23,7 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QSettings, Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QFont, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -67,7 +67,7 @@ from ..export import write_csv, write_sdf, write_smi
 from ..models import ExtractOptions, ExtractedMolecule, ExtractionResult
 from ..structure_draw import render_molecule_png
 from ..workers.extract_worker import ExtractWorker
-from .dialogs.custom_theme import CustomThemeDialog
+from .dialogs.citations import CitationsDialog
 from .dialogs.font_settings import FontSettingsDialog
 from .dialogs.structure_settings import StructureSettingsDialog
 from .extraction_result_tab import ExtractionResultTab
@@ -80,21 +80,16 @@ from .theme import (
     apply_application_font_pt,
     apply_application_theme,
     current_theme_name,
-    custom_theme_display_name,
     default_app_font_pt,
     default_table_font_pt,
     detail_panel_stylesheet,
     extract_panel_stylesheet,
-    is_custom_theme_id,
-    list_custom_theme_names,
     load_saved_app_font_pt,
     load_saved_table_font_pt,
     load_saved_theme_name,
-    make_custom_theme_id,
     save_app_font_pt,
     save_table_font_pt,
     save_theme_name,
-    startup_page_stylesheet,
 )
 
 logger = logging.getLogger(__name__)
@@ -129,10 +124,10 @@ class MainWindow(QMainWindow):
 
         self._build_menus()
         self._build_central()
+        apply_application_theme(QApplication.instance(), self._gui_theme)
         self._empty_result_tab = ExtractionResultTab(self)
         self._empty_result_tab.hide()
         self._set_active_result_tab(None)
-        apply_application_theme(QApplication.instance(), self._gui_theme)
         self.status_label = getattr(self, "_extract_status", QLabel("Ready — open a patent PDF to extract structures."))
         self.statusBar().hide()
         self._apply_table_font()
@@ -151,7 +146,8 @@ class MainWindow(QMainWindow):
 
     def _build_menus(self) -> None:
         menubar = self.menuBar()
-        file_menu = menubar.addMenu("&File")
+        self._file_menu = menubar.addMenu("&File")
+        file_menu = self._file_menu
         file_menu.addAction(QAction("&Open PDF…", self, shortcut="Ctrl+O", triggered=self.open_pdf))
         file_menu.addSeparator()
         file_menu.addAction(QAction("Export &CSV…", self, triggered=self.export_csv))
@@ -160,7 +156,8 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(QAction("E&xit", self, shortcut="Ctrl+Q", triggered=self.close))
 
-        settings_menu = menubar.addMenu("&Settings")
+        self._settings_menu = menubar.addMenu("&Settings")
+        settings_menu = self._settings_menu
         self._gui_menu = settings_menu.addMenu("&GUI")
         self._act_theme_light = QAction("Light Mode", self, checkable=True)
         self._act_theme_dark = QAction("Dark Mode", self, checkable=True)
@@ -173,51 +170,26 @@ class MainWindow(QMainWindow):
         self._act_theme_light.triggered.connect(lambda: self._set_gui_theme(THEME_LIGHT))
         self._act_theme_dark.triggered.connect(lambda: self._set_gui_theme(THEME_DARK))
         self._act_theme_groovy.triggered.connect(lambda: self._set_gui_theme(THEME_GROOVY))
-        self._custom_theme_actions: dict[str, QAction] = {}
-        self._act_customize_colors = QAction(
-            "Custom Colors…", self, triggered=self.open_custom_theme_dialog
-        )
-        self._rebuild_gui_theme_menu()
+        self._gui_menu.addAction(self._act_theme_light)
+        self._gui_menu.addAction(self._act_theme_dark)
+        self._gui_menu.addAction(self._act_theme_groovy)
+        self._sync_theme_menu_checks()
         settings_menu.addSeparator()
         settings_menu.addAction(
             QAction("&Structure…", self, triggered=self.open_structure_settings)
         )
         settings_menu.addAction(QAction("&Font…", self, triggered=self.open_font_dialog))
 
-        help_menu = menubar.addMenu("&Help")
+        self._help_menu = menubar.addMenu("&Help")
+        help_menu = self._help_menu
         help_menu.addAction(QAction("&User Guide", self, triggered=self.show_user_guide))
-
-    def _rebuild_gui_theme_menu(self) -> None:
-        menu = self._gui_menu
-        menu.clear()
-        for act in list(self._custom_theme_actions.values()):
-            self._theme_action_group.removeAction(act)
-        self._custom_theme_actions = {}
-        menu.addAction(self._act_theme_light)
-        menu.addAction(self._act_theme_dark)
-        menu.addAction(self._act_theme_groovy)
-        names = list_custom_theme_names()
-        if names:
-            menu.addSeparator()
-            for name in names:
-                act = QAction(name, self, checkable=True)
-                theme_id = make_custom_theme_id(name)
-                act.triggered.connect(lambda *_a, tid=theme_id: self._set_gui_theme(tid))
-                self._theme_action_group.addAction(act)
-                self._custom_theme_actions[name] = act
-                menu.addAction(act)
-        menu.addSeparator()
-        menu.addAction(self._act_customize_colors)
-        self._sync_theme_menu_checks()
+        help_menu.addAction(QAction("&Citations", self, triggered=self.show_citations))
 
     def _sync_theme_menu_checks(self) -> None:
         name = getattr(self, "_gui_theme", current_theme_name()) or current_theme_name()
         self._act_theme_light.setChecked(name == THEME_LIGHT)
         self._act_theme_dark.setChecked(name == THEME_DARK)
         self._act_theme_groovy.setChecked(name == THEME_GROOVY)
-        custom_name = custom_theme_display_name(name) if is_custom_theme_id(name) else None
-        for label, act in self._custom_theme_actions.items():
-            act.setChecked(custom_name is not None and label == custom_name)
 
     def _build_central(self) -> None:
         central = QWidget()
@@ -245,10 +217,6 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
-
-        title = QLabel("Options")
-        title.setStyleSheet("font-weight: 600;")
-        layout.addWidget(title)
 
         source_group = QGroupBox("PDF")
         source_layout = QVBoxLayout(source_group)
@@ -378,7 +346,6 @@ class MainWindow(QMainWindow):
 
     def _build_results_tabs(self) -> QStackedWidget:
         self._startup_page = StartupPage()
-        self._startup_page.setStyleSheet(startup_page_stylesheet())
         self._result_tabs = QTabWidget()
         self._result_tabs.currentChanged.connect(self._on_result_tab_changed)
         tab_bar = self._result_tabs.tabBar()
@@ -403,7 +370,9 @@ class MainWindow(QMainWindow):
 
         title = QLabel("Details")
         title.setObjectName("DetailPanelTitle")
-        title.setStyleSheet("font-weight: 600;")
+        title_font = QFont(title.font())
+        title_font.setWeight(QFont.DemiBold)
+        title.setFont(title_font)
         layout.addWidget(title)
 
         scroll = QScrollArea()
@@ -489,20 +458,9 @@ class MainWindow(QMainWindow):
         return panel
 
     def refresh_theme(self) -> None:
-        """Hook for live light/dark/groovy switches."""
-        app = QApplication.instance()
-        if app is not None:
-            self.setPalette(app.palette())
-            self.setAutoFillBackground(False)
-            self.setAttribute(Qt.WA_StyledBackground, False)
-        self.setStyleSheet("")
-
-        menu_bar = self.menuBar()
-        if menu_bar is not None:
-            menu_bar.setStyleSheet("")
-            menu_bar.setAutoFillBackground(False)
-            menu_bar.setAttribute(Qt.WA_StyledBackground, False)
-
+        """Refresh palette-driven component styling after an application theme change."""
+        if not hasattr(self, "_result_tabs"):
+            return
         extract = getattr(self, "_extract_panel", None)
         if extract is not None:
             extract.setStyleSheet(extract_panel_stylesheet())
@@ -517,36 +475,14 @@ class MainWindow(QMainWindow):
         if getattr(self, "_table_font_pt", None) is not None:
             self._apply_table_font()
         self.update()
-        if app is not None:
-            app.processEvents()
 
     def _set_gui_theme(self, theme: str) -> None:
         app = QApplication.instance()
         theme = apply_application_theme(app, theme)
         self._gui_theme = theme
         save_theme_name(theme)
-        if app is not None:
-            self.setPalette(app.palette())
-            self.setStyleSheet("")
-            self.update()
         self._sync_theme_menu_checks()
-        self.refresh_theme()
         apply_application_font_pt(int(self._app_font_pt or default_app_font_pt()))
-
-    def open_custom_theme_dialog(self) -> None:
-        dlg = CustomThemeDialog(self)
-        accepted = dlg.exec() == QDialog.Accepted
-        deleted = dlg.deleted_theme_name()
-        saved = dlg.saved_theme_name() if accepted else None
-        if deleted:
-            cur = current_theme_name()
-            if is_custom_theme_id(cur) and custom_theme_display_name(cur) == deleted:
-                self._set_gui_theme(THEME_LIGHT)
-        if deleted or saved:
-            self._rebuild_gui_theme_menu()
-        if saved:
-            self._set_gui_theme(make_custom_theme_id(saved))
-            self.status_label.setText(f'Saved custom theme "{saved}".')
 
     def open_structure_settings(self) -> None:
         prev_w, prev_h = structure_width(), structure_height()
@@ -647,9 +583,9 @@ class MainWindow(QMainWindow):
             "to save the extracted structures and metadata in a format suitable for further "
             "analysis or workflow integration.</p>"
             "<p><b>8. Customize the interface</b><br>"
-            "Open <b>Settings → GUI</b> to switch between Light, Dark, and Groovy themes, "
-            "or choose custom color schemes. Structure rendering and font settings are also "
-            "available under Settings.</p>"
+            "Open <b>Settings → GUI</b> to switch between Light, Dark, and Groovy themes. "
+            "Your choice is remembered when you reopen the app. Structure rendering and font "
+            "settings are also available under Settings.</p>"
             "<p><b>Tips</b><br>"
             "- Install Poppler for PDF rendering support.<br>"
             "- On Python 3.10/3.11, OpenChemIE may require a manual torch 2.x workaround "
@@ -657,6 +593,10 @@ class MainWindow(QMainWindow):
             "- If the Extract panel warns that OpenChemIE is unavailable, install the "
             "project requirements again in the active venv.</p>",
         )
+
+    def show_citations(self) -> None:
+        """Open the citation guide for the application and its core technology stack."""
+        CitationsDialog(self).exec()
 
     def open_pdf(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

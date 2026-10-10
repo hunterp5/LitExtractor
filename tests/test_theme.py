@@ -26,9 +26,13 @@ from patentextractor.ui.theme import (
     THEME_DARK,
     THEME_GROOVY,
     THEME_LIGHT,
+    THEME_NAMES,
     apply_application_theme,
     current_theme_name,
+    initialize_application_theme,
+    load_saved_theme_name,
     palette_for_theme,
+    save_theme_name,
 )
 
 
@@ -88,6 +92,7 @@ def test_gui_menu_selection_matches_saved_theme_on_startup(qapp):
     settings = QSettings("PatentExtractor", "PatentExtractor")
     original_value = settings.value("gui/theme")
     had_original_value = settings.contains("gui/theme")
+    original_current_theme = current_theme_name()
     settings.setValue("gui/theme", THEME_DARK)
 
     from patentextractor.ui.main_window import MainWindow
@@ -97,20 +102,74 @@ def test_gui_menu_selection_matches_saved_theme_on_startup(qapp):
         assert window._gui_theme == THEME_DARK
         assert window._act_theme_dark.isChecked() is True
         assert window._act_theme_light.isChecked() is False
+        assert [action.text() for action in window._gui_menu.actions()] == [
+            "Light Mode",
+            "Dark Mode",
+            "Groovy Mode",
+        ]
+        window._act_theme_groovy.trigger()
+        assert settings.value("gui/theme") == THEME_GROOVY
+        assert window._act_theme_groovy.isChecked() is True
+        assert qapp.palette().color(QPalette.Window) == window.palette().color(QPalette.Window)
     finally:
         window.close()
         if had_original_value:
             settings.setValue("gui/theme", original_value)
         else:
             settings.remove("gui/theme")
+        apply_application_theme(qapp, original_current_theme)
 
 
-def test_groovy_is_randomized(qapp):  # noqa: ARG001
+def test_groovy_palette_is_randomized_and_multicolor(qapp):  # noqa: ARG001
     import random
 
-    a = palette_for_theme(THEME_GROOVY, rng=random.Random(1))
-    b = palette_for_theme(THEME_GROOVY, rng=random.Random(2))
-    assert a.color(QPalette.Window) != b.color(QPalette.Window)
+    first = palette_for_theme(THEME_GROOVY, rng=random.Random(1))
+    second = palette_for_theme(THEME_GROOVY, rng=random.Random(2))
+    assert first.color(QPalette.ColorRole.Window) != second.color(QPalette.ColorRole.Window)
+    assert first.color(QPalette.ColorRole.Window) != first.color(QPalette.ColorRole.Base)
+    assert first.color(QPalette.ColorRole.Base) != first.color(QPalette.ColorRole.Button)
+
+
+def test_theme_set_is_closed_and_legacy_values_fall_back_to_light(qapp):
+    from PySide6.QtCore import QSettings
+
+    settings = QSettings("PatentExtractor", "PatentExtractor")
+    original_value = settings.value("gui/theme")
+    had_original_value = settings.contains("gui/theme")
+    try:
+        assert THEME_NAMES == (THEME_LIGHT, THEME_DARK, THEME_GROOVY)
+        settings.setValue("gui/theme", "custom:old-theme")
+        assert load_saved_theme_name() == THEME_LIGHT
+        assert settings.value("gui/theme") == THEME_LIGHT
+    finally:
+        if had_original_value:
+            settings.setValue("gui/theme", original_value)
+        else:
+            settings.remove("gui/theme")
+
+
+def test_startup_initialization_restores_saved_theme_to_app_and_new_dialog(qapp):
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QDialog
+
+    settings = QSettings("PatentExtractor", "PatentExtractor")
+    original_value = settings.value("gui/theme")
+    had_original_value = settings.contains("gui/theme")
+    try:
+        save_theme_name(THEME_GROOVY)
+        assert initialize_application_theme(qapp) == THEME_GROOVY
+        dialog = QDialog()
+        dialog.show()
+        qapp.processEvents()
+        assert dialog.palette().color(QPalette.Window) == qapp.palette().color(QPalette.Window)
+        assert current_theme_name() == THEME_GROOVY
+        dialog.close()
+    finally:
+        if had_original_value:
+            settings.setValue("gui/theme", original_value)
+        else:
+            settings.remove("gui/theme")
+        apply_application_theme(qapp, THEME_LIGHT)
 
 
 def test_structure_delegate_uses_palette_background_in_dark_mode(qapp):

@@ -18,9 +18,14 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
 from rdkit import Chem
 
-from patentextractor.structure_draw import render_molecule_png
+from patentextractor.structure_draw import configure_mol_drawer, render_molecule_png
 
 
 def test_render_ethanol_png():
@@ -35,3 +40,48 @@ def test_render_unsanitized_mol_does_not_raise():
     assert mol is not None
     png = render_molecule_png(mol, 80, 80)
     assert isinstance(png, bytes)
+
+
+def test_structure_draw_import_does_not_import_qt():
+    project_root = Path(__file__).resolve().parents[1]
+    script = """
+import importlib.abc
+import sys
+
+class BlockQtFinder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "PySide6" or fullname.startswith("PySide6."):
+            raise AssertionError("structure_draw imported PySide6")
+
+sys.meta_path.insert(0, BlockQtFinder())
+import patentextractor.structure_draw
+assert not any(name == "PySide6" or name.startswith("PySide6.") for name in sys.modules)
+"""
+    subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_drawer_bond_width_tracks_layout_dimensions():
+    from patentextractor.structure_layout import set_structure_size, structure_height, structure_width
+
+    old_width, old_height = structure_width(), structure_height()
+
+    class FakeDrawer:
+        def __init__(self):
+            self.options = SimpleNamespace()
+
+        def drawOptions(self):
+            return self.options
+
+    try:
+        set_structure_size(100, 100, persist=False)
+        drawer = FakeDrawer()
+        configure_mol_drawer(drawer, target_w=200)
+        assert drawer.options.bondLineWidth == 2.0
+    finally:
+        set_structure_size(old_width, old_height, persist=False)

@@ -249,6 +249,7 @@ def test_options_panel_is_grouped_and_not_resizable_against_results(qapp):  # no
 
     group_titles = {group.title() for group in window._extract_panel.findChildren(QGroupBox)}
     assert group_titles == {"PDF", "Extract", "Page range", "Structure limit", "Processing"}
+    assert all(label.text() != "Options" for label in window._extract_panel.findChildren(QLabel))
     window.close()
 
 

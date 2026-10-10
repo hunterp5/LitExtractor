@@ -23,6 +23,9 @@ import os
 import sys
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+_DLL_DIRECTORY_HANDLES: list[object] = []
+
 
 def _prepare_qt_runtime() -> None:
     """Ensure Windows resolves the active venv's bundled Qt DLLs before any other Qt install."""
@@ -30,19 +33,27 @@ def _prepare_qt_runtime() -> None:
         return
     try:
         venv_root = Path(sys.executable).resolve().parent.parent
-        qt_dirs = [
-            venv_root / "Lib" / "site-packages" / "PySide6",
-            venv_root / "Lib" / "site-packages" / "PySide6" / "plugins" / "platforms",
-        ]
-        path_entries = os.environ.get("PATH", "").split(os.pathsep)
-        for qt_dir in qt_dirs:
-            if qt_dir.exists():
-                qt_dir_str = str(qt_dir)
-                if qt_dir_str not in path_entries:
-                    os.environ["PATH"] = qt_dir_str + os.pathsep + os.environ.get("PATH", "")
-                os.add_dll_directory(qt_dir_str)
-    except Exception:
-        pass
+    except (OSError, RuntimeError) as exc:
+        logger.warning("Could not resolve the active Python environment for Qt DLL setup: %s", exc)
+        return
+
+    qt_dirs = [
+        venv_root / "Lib" / "site-packages" / "PySide6",
+        venv_root / "Lib" / "site-packages" / "PySide6" / "plugins" / "platforms",
+    ]
+    for qt_dir in qt_dirs:
+        try:
+            if not qt_dir.exists():
+                continue
+            qt_dir_str = str(qt_dir)
+            path_entries = os.environ.get("PATH", "").split(os.pathsep)
+            if qt_dir_str not in path_entries:
+                os.environ["PATH"] = qt_dir_str + os.pathsep + os.environ.get("PATH", "")
+            handle = os.add_dll_directory(qt_dir_str)
+        except (OSError, AttributeError) as exc:
+            logger.warning("Could not register Qt DLL directory %s: %s", qt_dir, exc)
+            continue
+        _DLL_DIRECTORY_HANDLES.append(handle)
 
 
 _prepare_qt_runtime()
@@ -52,8 +63,7 @@ from PySide6.QtWidgets import QApplication
 from .app_logging import configure_app_logging, install_crash_excepthook
 from .rdkit_env import configure_rdkit_for_desktop_app
 from .ui.main_window import MainWindow
-
-logger = logging.getLogger(__name__)
+from .ui.theme import initialize_application_theme
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     configure_rdkit_for_desktop_app()
 
     app = QApplication(argv)
+    initialize_application_theme(app)
     window = MainWindow()
     window.show()
     return app.exec()

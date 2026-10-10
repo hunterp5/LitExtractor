@@ -185,8 +185,10 @@ def test_patch_empty_molscribe_results_updates_interface_alias():
 
 
 def test_cuda_is_optional_and_falls_back_to_cpu(monkeypatch):
-    monkeypatch.setattr(extraction, "cuda_available", lambda: False)
-    assert extraction.cuda_available() is False
+    from patentextractor import extraction_runtime
+
+    monkeypatch.setattr(extraction_runtime, "cuda_available", lambda: False)
+    assert extraction_runtime.cuda_available() is False
     assert resolve_torch_device("cuda") == "cpu"
     assert resolve_torch_device("cpu") == "cpu"
 

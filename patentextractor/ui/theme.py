@@ -14,35 +14,32 @@
 # You should have received a copy of the GNU General Public License
 # along with PatentExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Application GUI themes (Fusion style + palette only)."""
+"""Application-wide, persistent Qt themes."""
 
 from __future__ import annotations
 
+import ctypes
 import colorsys
-import json
 import random
+import sys
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QEvent, QObject, QSettings
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
 THEME_LIGHT = "light"
 THEME_DARK = "dark"
 THEME_GROOVY = "groovy"
-THEME_CUSTOM = "custom"  # legacy single custom id; migrated to named themes
-THEME_CUSTOM_PREFIX = "custom:"
+THEME_NAMES = (THEME_LIGHT, THEME_DARK, THEME_GROOVY)
 
 _SETTINGS_ORG = "PatentExtractor"
 _SETTINGS_APP = "PatentExtractor"
 _SETTINGS_KEY_THEME = "gui/theme"
-_SETTINGS_KEY_CUSTOM_PALETTE = "gui/custom_palette"  # legacy single palette
-_SETTINGS_KEY_CUSTOM_THEMES = "gui/custom_themes"
 _SETTINGS_KEY_TABLE_FONT_PT = "gui/table_font_pt"
 _SETTINGS_KEY_APP_FONT_PT = "gui/app_font_pt"
 
 _CURRENT_THEME = THEME_LIGHT
-
-_FC_CTRL_H = 20
+_FONT_THEME_FILTER: _ThemeWindowFilter | None = None
 
 MIN_FONT_PT = 8
 MAX_FONT_PT = 32
@@ -51,28 +48,43 @@ DEFAULT_FONT_PT = 10
 MIN_TABLE_FONT_PT = MIN_FONT_PT
 MAX_TABLE_FONT_PT = MAX_FONT_PT
 
-# User-editable roles for the Custom theme (key → label, QPalette role).
-CUSTOM_PALETTE_ROLES: tuple[tuple[str, str, object], ...] = (
-    ("window", "Window", QPalette.Window),
-    ("window_text", "Window text", QPalette.WindowText),
-    ("base", "Base (tables / fields)", QPalette.Base),
-    ("alternate_base", "Alternate base", QPalette.AlternateBase),
-    ("text", "Text", QPalette.Text),
-    ("button", "Button", QPalette.Button),
-    ("button_text", "Button text", QPalette.ButtonText),
-    ("highlight", "Highlight (selection)", QPalette.Highlight),
-    ("highlighted_text", "Highlighted text", QPalette.HighlightedText),
-    ("mid", "Mid (borders)", QPalette.Mid),
-    ("light", "Light", QPalette.Light),
-    ("dark", "Dark", QPalette.Dark),
-    ("link", "Link", QPalette.Link),
-    ("tooltip_base", "Tooltip background", QPalette.ToolTipBase),
-    ("tooltip_text", "Tooltip text", QPalette.ToolTipText),
-)
-
 
 def current_theme_name() -> str:
+    """Return the normalized theme currently applied to the application."""
     return _CURRENT_THEME
+
+
+def _normalize_theme_name(theme: str | None) -> str:
+    """Normalize stored values into the closed set of supported theme names."""
+    name = str(theme or "").strip().lower().replace("-", "_")
+    aliases = {
+        "light": THEME_LIGHT,
+        "light_mode": THEME_LIGHT,
+        "dark": THEME_DARK,
+        "dark_mode": THEME_DARK,
+        "groovy": THEME_GROOVY,
+        "groovy_mode": THEME_GROOVY,
+        "psychedelic": THEME_GROOVY,
+    }
+    return aliases.get(name, THEME_LIGHT)
+
+
+def load_saved_theme_name() -> str:
+    """Return the user's saved theme; default to Light for new or legacy settings."""
+    settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+    stored = settings.value(_SETTINGS_KEY_THEME, "")
+    name = _normalize_theme_name(str(stored or ""))
+    if stored != name:
+        settings.setValue(_SETTINGS_KEY_THEME, name)
+        settings.sync()
+    return name
+
+
+def save_theme_name(theme: str) -> None:
+    """Persist a theme selection after normalizing it to the supported three."""
+    settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+    settings.setValue(_SETTINGS_KEY_THEME, _normalize_theme_name(theme))
+    settings.sync()
 
 
 def _clamp_font_pt(pt: int) -> int:
@@ -92,7 +104,7 @@ def default_table_font_pt() -> int:
 def _load_saved_font_pt(key: str) -> int:
     raw = QSettings(_SETTINGS_ORG, _SETTINGS_APP).value(key, 0)
     try:
-        pt = int(raw)
+        pt = int(str(raw))
     except (TypeError, ValueError):
         pt = 0
     if pt <= 0:
@@ -122,255 +134,146 @@ def apply_application_font_pt(pt: int) -> int:
     """Set the application-wide font point size; returns the clamped size applied."""
     app = QApplication.instance()
     pt = _clamp_font_pt(pt)
-    if app is not None:
+    if isinstance(app, QApplication):
         font = QFont(app.font())
         font.setPointSize(pt)
         app.setFont(font)
     return pt
 
 
-def is_custom_theme_id(theme: str | None) -> bool:
-    raw = str(theme or "").strip()
-    return raw.lower() == THEME_CUSTOM or raw.startswith(THEME_CUSTOM_PREFIX)
+def _light_palette() -> QPalette:
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor("#f5f7fa"))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor("#19202c"))
+    palette.setColor(QPalette.ColorRole.Base, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#eef0f4"))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#141414"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#19202c"))
+    palette.setColor(QPalette.ColorRole.Button, QColor("#eceff4"))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#19202c"))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Link, QColor("#2e67c8"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#4077f4"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Mid, QColor("#b7bec7"))
+    palette.setColor(QPalette.ColorRole.Dark, QColor("#767e88"))
+    palette.setColor(QPalette.ColorRole.Light, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Shadow, QColor("#3f4954"))
+    disabled = QColor("#949ca8")
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, disabled)
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, disabled)
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, disabled)
+    return palette
 
 
-def custom_theme_display_name(theme_id: str) -> str:
-    raw = str(theme_id or "").strip()
-    if raw.startswith(THEME_CUSTOM_PREFIX):
-        return raw[len(THEME_CUSTOM_PREFIX) :].strip() or "Custom"
-    if raw.lower() == THEME_CUSTOM:
-        return "Custom"
-    return raw
+def _dark_palette() -> QPalette:
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor("#25272b"))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor("#f0f0f0"))
+    palette.setColor(QPalette.ColorRole.Base, QColor("#191a1d"))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#2d3035"))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#35383e"))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#f0f0f0"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#f0f0f0"))
+    palette.setColor(QPalette.ColorRole.Button, QColor("#3a3d43"))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#f0f0f0"))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Link, QColor("#8ab4ff"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#477bd1"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Mid, QColor("#666b74"))
+    palette.setColor(QPalette.ColorRole.Dark, QColor("#17191c"))
+    palette.setColor(QPalette.ColorRole.Light, QColor("#4a4e55"))
+    palette.setColor(QPalette.ColorRole.Shadow, QColor("#101114"))
+    disabled = QColor("#8b9099")
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, disabled)
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, disabled)
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, disabled)
+    return palette
 
 
-def make_custom_theme_id(name: str) -> str:
-    cleaned = " ".join(str(name or "").split()).strip()
-    if not cleaned:
-        cleaned = "Custom"
-    return f"{THEME_CUSTOM_PREFIX}{cleaned}"
-
-
-def _normalize_theme_name(theme: str | None) -> str:
-    raw = str(theme or "").strip()
-    if raw.startswith(THEME_CUSTOM_PREFIX):
-        name = custom_theme_display_name(raw)
-        return make_custom_theme_id(name)
-    low = raw.lower().replace("-", "_")
-    if low in ("dark", "dark_mode"):
-        return THEME_DARK
-    if low in ("groovy", "groovy_mode", "psychedelic"):
-        return THEME_GROOVY
-    if low in ("custom", "custom_mode"):
-        # Legacy single custom → named theme if present, else light.
-        themes = list_custom_theme_names()
-        if "Custom" in themes:
-            return make_custom_theme_id("Custom")
-        if themes:
-            return make_custom_theme_id(themes[0])
-        return THEME_LIGHT
-    return THEME_LIGHT
-
-
-def load_saved_theme_name() -> str:
-    """Return the user's saved GUI theme, or light when none has been chosen yet."""
-    settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
-    if not settings.contains(_SETTINGS_KEY_THEME):
-        return THEME_LIGHT
-    name = _normalize_theme_name(str(settings.value(_SETTINGS_KEY_THEME) or ""))
-    if is_custom_theme_id(name):
-        display = custom_theme_display_name(name)
-        if display not in list_custom_theme_names():
-            return THEME_LIGHT
-    return name
-
-
-def save_theme_name(theme: str) -> None:
-    name = _normalize_theme_name(theme)
-    QSettings(_SETTINGS_ORG, _SETTINGS_APP).setValue(_SETTINGS_KEY_THEME, name)
-
-
-def default_custom_palette_colors() -> dict[str, str]:
-    """Default Custom theme colors seeded from the Fusion light palette."""
-    p = _light_palette()
-    out: dict[str, str] = {}
-    for key, _label, role in CUSTOM_PALETTE_ROLES:
-        out[key] = QColor(p.color(role)).name()
-    return out
-
-
-def _normalize_palette_colors(colors: dict | None) -> dict[str, str]:
-    base = default_custom_palette_colors()
-    if not isinstance(colors, dict):
-        return base
-    for key, _label, _role in CUSTOM_PALETTE_ROLES:
-        val = colors.get(key)
-        if not isinstance(val, str):
-            continue
-        c = QColor(val)
-        if c.isValid():
-            base[key] = c.name()
-    return base
-
-
-def _load_legacy_custom_palette_dict() -> dict[str, str] | None:
-    """Parse the legacy single-palette QSettings key, or None if unset/invalid."""
-    settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
-    if not settings.contains(_SETTINGS_KEY_CUSTOM_PALETTE):
-        return None
-    raw = settings.value(_SETTINGS_KEY_CUSTOM_PALETTE, "")
-    data: dict | None = None
-    if isinstance(raw, dict):
-        data = raw
-    else:
-        text = str(raw or "").strip()
-        if text:
-            try:
-                parsed = json.loads(text)
-            except (TypeError, ValueError, json.JSONDecodeError):
-                parsed = None
-            if isinstance(parsed, dict):
-                data = parsed
-    if not data:
-        return None
-    return _normalize_palette_colors(data)
-
-
-def _read_custom_themes_raw() -> dict[str, dict[str, str]]:
-    settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
-    raw = settings.value(_SETTINGS_KEY_CUSTOM_THEMES, "")
-    data: dict | None = None
-    if isinstance(raw, dict):
-        data = raw
-    else:
-        text = str(raw or "").strip()
-        if text:
-            try:
-                parsed = json.loads(text)
-            except (TypeError, ValueError, json.JSONDecodeError):
-                parsed = None
-            if isinstance(parsed, dict):
-                data = parsed
-    out: dict[str, dict[str, str]] = {}
-    if data:
-        for name, colors in data.items():
-            label = " ".join(str(name or "").split()).strip()
-            if not label:
-                continue
-            out[label] = _normalize_palette_colors(colors if isinstance(colors, dict) else None)
-    return out
-
-
-def _write_custom_themes_raw(themes: dict[str, dict[str, str]]) -> None:
-    payload = {name: _normalize_palette_colors(colors) for name, colors in themes.items()}
-    QSettings(_SETTINGS_ORG, _SETTINGS_APP).setValue(
-        _SETTINGS_KEY_CUSTOM_THEMES,
-        json.dumps(payload, separators=(",", ":"), sort_keys=True),
+def _hsv_qcolor(hue: float, saturation: float, value: float) -> QColor:
+    red, green, blue = colorsys.hsv_to_rgb(
+        hue % 1.0,
+        max(0.0, min(1.0, saturation)),
+        max(0.0, min(1.0, value)),
     )
+    return QColor(int(red * 255), int(green * 255), int(blue * 255))
 
 
-def list_custom_theme_names() -> list[str]:
-    """Sorted display names of saved custom themes."""
-    return sorted(_read_custom_themes_raw().keys(), key=lambda s: s.casefold())
+def _contrasting_text(background: QColor) -> QColor:
+    """Choose a readable foreground using the background's approximate luminance."""
+    luminance = (
+        0.2126 * background.red() + 0.7152 * background.green() + 0.0722 * background.blue()
+    ) / 255.0
+    return QColor(18, 18, 22) if luminance > 0.55 else QColor(250, 248, 255)
 
 
-def load_custom_theme_colors(name_or_id: str) -> dict[str, str]:
-    """Colors for a named custom theme (defaults if missing)."""
-    name = custom_theme_display_name(name_or_id)
-    themes = _read_custom_themes_raw()
-    if name in themes:
-        return dict(themes[name])
-    return default_custom_palette_colors()
+def _groovy_palette(rng: random.Random | None = None) -> QPalette:
+    """Build a randomized multi-hue Groovy palette with contrasting text."""
+    rng = rng or random.Random()
+    base_hue = rng.random()
 
+    def shifted_color(
+        offset: float,
+        saturation: tuple[float, float],
+        value: tuple[float, float],
+    ) -> QColor:
+        return _hsv_qcolor(
+            base_hue + offset,
+            rng.uniform(*saturation),
+            rng.uniform(*value),
+        )
 
-def save_custom_theme(name: str, colors: dict[str, str]) -> str:
-    """Save/overwrite a named custom theme; returns the display name used."""
-    cleaned = " ".join(str(name or "").split()).strip() or "Custom"
-    themes = _read_custom_themes_raw()
-    themes[cleaned] = _normalize_palette_colors(colors)
-    _write_custom_themes_raw(themes)
-    return cleaned
+    window = shifted_color(0.00, (0.55, 0.95), (0.35, 0.75))
+    base = shifted_color(0.12, (0.45, 0.90), (0.22, 0.55))
+    alternate = shifted_color(0.22, (0.50, 0.95), (0.30, 0.65))
+    button = shifted_color(0.35, (0.60, 1.00), (0.40, 0.85))
+    highlight = shifted_color(0.55, (0.75, 1.00), (0.55, 0.95))
+    link = shifted_color(0.70, (0.70, 1.00), (0.55, 0.95))
+    mid = shifted_color(0.08, (0.25, 0.55), (0.35, 0.60))
+    light = shifted_color(0.05, (0.35, 0.70), (0.70, 0.95))
+    dark = shifted_color(0.02, (0.40, 0.80), (0.12, 0.30))
+    tooltip = shifted_color(0.40, (0.50, 0.90), (0.35, 0.70))
 
-
-def delete_custom_theme(name: str) -> bool:
-    """Remove a named custom theme. Returns True if it existed."""
-    cleaned = " ".join(str(name or "").split()).strip()
-    themes = _read_custom_themes_raw()
-    if cleaned not in themes:
-        return False
-    del themes[cleaned]
-    _write_custom_themes_raw(themes)
-    return True
-
-
-def load_saved_custom_palette_colors() -> dict[str, str]:
-    """Preferred named custom palette, else legacy single palette / light defaults."""
-    themes = _read_custom_themes_raw()
-    if themes:
-        if "Custom" in themes:
-            return dict(themes["Custom"])
-        first = sorted(themes.keys(), key=lambda s: s.casefold())[0]
-        return dict(themes[first])
-    legacy = _load_legacy_custom_palette_dict()
-    if legacy is not None:
-        return legacy
-    return default_custom_palette_colors()
-
-
-def save_custom_palette_colors(colors: dict[str, str]) -> dict[str, str]:
-    """Persist colors to the legacy single-palette key (does not add a menu theme)."""
-    base = _normalize_palette_colors(colors)
-    QSettings(_SETTINGS_ORG, _SETTINGS_APP).setValue(
-        _SETTINGS_KEY_CUSTOM_PALETTE,
-        json.dumps(base, separators=(",", ":"), sort_keys=True),
-    )
-    return base
-
-
-def _custom_palette(colors: dict[str, str] | None = None) -> QPalette:
-    """Build a Fusion palette from saved/edited Custom theme colors."""
-    merged = default_custom_palette_colors()
-    if colors:
-        for key, val in colors.items():
-            if key not in merged or not isinstance(val, str):
-                continue
-            c = QColor(val)
-            if c.isValid():
-                merged[key] = c.name()
-    p = QPalette()
-    for key, _label, role in CUSTOM_PALETTE_ROLES:
-        p.setColor(role, QColor(merged[key]))
-    # Derived extras for readability when disabled.
-    mid = QColor(merged["mid"])
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, window)
+    palette.setColor(QPalette.ColorRole.WindowText, _contrasting_text(window))
+    palette.setColor(QPalette.ColorRole.Base, base)
+    palette.setColor(QPalette.ColorRole.AlternateBase, alternate)
+    palette.setColor(QPalette.ColorRole.ToolTipBase, tooltip)
+    palette.setColor(QPalette.ColorRole.ToolTipText, _contrasting_text(tooltip))
+    palette.setColor(QPalette.ColorRole.Text, _contrasting_text(base))
+    palette.setColor(QPalette.ColorRole.Button, button)
+    palette.setColor(QPalette.ColorRole.ButtonText, _contrasting_text(button))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffff50"))
+    palette.setColor(QPalette.ColorRole.Link, link)
+    palette.setColor(QPalette.ColorRole.Highlight, highlight)
+    palette.setColor(QPalette.ColorRole.HighlightedText, _contrasting_text(highlight))
+    palette.setColor(QPalette.ColorRole.Mid, mid)
+    palette.setColor(QPalette.ColorRole.Dark, dark)
+    palette.setColor(QPalette.ColorRole.Light, light)
+    palette.setColor(QPalette.ColorRole.Shadow, QColor("#0a0514"))
     disabled = QColor(mid.red(), mid.green(), mid.blue(), 160)
-    p.setColor(QPalette.BrightText, QColor(255, 255, 80))
-    p.setColor(QPalette.Shadow, QColor(20, 20, 20))
-    p.setColor(QPalette.Disabled, QPalette.Text, disabled)
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, disabled)
-    p.setColor(QPalette.Disabled, QPalette.WindowText, disabled)
-    return p
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, disabled)
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, disabled)
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, disabled)
+    return palette
 
 
-def polish_widget_property(widget: QWidget, prop: str, value: object) -> None:
-    """Apply a dynamic Qt style property (e.g. ``fcActive``) and re-polish."""
-    widget.setProperty(prop, value)
-    style = widget.style()
-    style.unpolish(widget)
-    style.polish(widget)
-    widget.update()
-
-
-def filter_panel_stylesheet() -> str:
-    """Filter side panel chrome — palette-driven (light/dark follow app palette)."""
-    return """
-    QFrame#FilterPanel {
-        background-color: palette(window);
-        border-left: 1px solid palette(mid);
-    }
-    """
+def palette_for_theme(theme: str, *, rng: random.Random | None = None) -> QPalette:
+    """Return the palette for *theme*; Groovy is freshly randomized on every application."""
+    name = _normalize_theme_name(theme)
+    if name == THEME_DARK:
+        return _dark_palette()
+    if name == THEME_GROOVY:
+        return _groovy_palette(rng)
+    return _light_palette()
 
 
 def extract_panel_stylesheet() -> str:
-    """Left extract panel — same Fusion palette chrome as MolManager side panels."""
+    """Palette-driven styling for the extraction side panel."""
     return """
     QFrame#ExtractPanel {
         background-color: palette(window);
@@ -380,7 +283,7 @@ def extract_panel_stylesheet() -> str:
 
 
 def detail_panel_stylesheet() -> str:
-    """Right detail panel — palette-driven sibling of the extract panel."""
+    """Palette-driven styling for the detail side panel and its cards."""
     return """
     QFrame#DetailPanel {
         background-color: palette(window);
@@ -408,334 +311,106 @@ def detail_panel_stylesheet() -> str:
     """
 
 
-def startup_page_stylesheet() -> str:
-    """Simple centered idle/loading text styled with the active Fusion palette."""
-    return """
-    QFrame#WelcomePage {
-        background-color: palette(window);
-    }
-    QLabel#WorkspaceStatus {
-        color: palette(windowtext);
-        font-size: 14px;
-        padding: 24px;
-    }
-    """
+class _ThemeWindowFilter(QObject):
+    """Apply the application palette to app-owned top-level windows before they show."""
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if (
+            event.type() == QEvent.Type.Show
+            and isinstance(watched, QWidget)
+            and watched.isWindow()
+        ):
+            palette = QApplication.palette()
+            watched.setPalette(palette)
+            _apply_native_window_chrome(watched, palette)
+        return False
 
 
-def filter_card_stylesheet(theme: str | None = None) -> str:
-    """
-    Filter entries flush in the side panel — palette-driven, no floated card chrome.
-    """
-    del theme
-    h = _FC_CTRL_H
-    return f"""
-    QFrame#FilterCard {{
-        background-color: transparent;
-        border: none;
-        border-bottom: 1px solid palette(mid);
-        border-radius: 0px;
-        padding: 2px 0px 4px 0px;
-    }}
-    QFrame#FilterCard[fcDragging="true"] {{
-        border-bottom: 1px dashed palette(highlight);
-        background-color: palette(alternatebase);
-    }}
-    QFrame#FilterCard QLabel {{
-        font-size: 11px;
-        color: palette(windowtext);
-        background: transparent;
-    }}
-    QFrame#FilterCard QLabel#fcMiniLabel {{
-        font-size: 10px;
-        color: palette(mid);
-        min-width: 26px;
-        max-width: 26px;
-    }}
-    QFrame#FilterCard QLabel#fcSectionTitle {{
-        font-size: 11px;
-        font-weight: 600;
-        color: palette(windowtext);
-        padding: 0px 2px;
-        min-height: {h}px;
-        max-height: {h}px;
-        border: none;
-        background: transparent;
-    }}
-    QFrame#FilterCard QComboBox,
-    QFrame#FilterCard QLineEdit {{
-        min-height: {h}px;
-        max-height: {h}px;
-        font-size: 11px;
-        border: 1px solid palette(mid);
-        border-radius: 2px;
-        padding: 0px 4px;
-        background-color: palette(base);
-        color: palette(text);
-        selection-background-color: palette(highlight);
-        selection-color: palette(highlightedtext);
-    }}
-    QFrame#FilterCard QComboBox:focus,
-    QFrame#FilterCard QLineEdit:focus {{
-        border-color: palette(highlight);
-    }}
-    QFrame#FilterCard QComboBox::drop-down {{
-        subcontrol-origin: padding;
-        subcontrol-position: top right;
-        width: 16px;
-        border: none;
-        border-left: 1px solid palette(mid);
-    }}
-    QFrame#FilterCard QComboBox QAbstractItemView {{
-        background-color: palette(base);
-        color: palette(text);
-        border: 1px solid palette(mid);
-        selection-background-color: palette(highlight);
-        selection-color: palette(highlightedtext);
-    }}
-
-    QFrame#FilterCard QLineEdit#fcTitleEdit {{
-        min-height: {h}px;
-        max-height: {h}px;
-        font-size: 11px;
-        font-weight: 600;
-        border: none;
-        border-radius: 0px;
-        padding: 0px 2px;
-        background-color: transparent;
-        color: palette(text);
-        selection-background-color: palette(highlight);
-        selection-color: palette(highlightedtext);
-    }}
-    QFrame#FilterCard QLineEdit#fcTitleEdit:focus {{
-        border: none;
-        border-color: transparent;
-    }}
-
-    QFrame#FilterCard QPushButton#fcToggle {{
-        padding: 0px 6px;
-        font-size: 10px;
-        min-height: {h}px;
-        max-height: {h}px;
-        min-width: 44px;
-        border: 1px solid palette(mid);
-        border-radius: 2px;
-        background-color: palette(button);
-        color: palette(buttontext);
-    }}
-    QFrame#FilterCard QPushButton#fcToggle:hover {{
-        background-color: palette(light);
-    }}
-    QFrame#FilterCard QPushButton#fcToggle[fcActive="true"] {{
-        border-color: palette(highlight);
-        background-color: palette(highlight);
-        color: palette(highlightedtext);
-        font-weight: 600;
-    }}
-    QFrame#FilterCard QPushButton#fcRemove {{
-        min-width: 18px;
-        max-width: 18px;
-        min-height: 18px;
-        max-height: 18px;
-        color: #c0392b;
-        background-color: transparent;
-        border: none;
-        border-radius: 2px;
-        font-size: 15px;
-        font-weight: bold;
-        padding: 0px;
-    }}
-    QFrame#FilterCard QPushButton#fcRemove:hover {{
-        color: #e74c3c;
-        background-color: palette(alternatebase);
-    }}
-    QFrame#FilterCard QListWidget {{
-        font-size: 10px;
-        border: 1px solid palette(mid);
-        border-radius: 2px;
-        background-color: palette(base);
-        color: palette(text);
-        outline: 0;
-    }}
-    QFrame#FilterCard QListWidget::item {{
-        padding: 1px 4px;
-        min-height: 14px;
-    }}
-    QFrame#FilterCard QListWidget::item:hover {{
-        background-color: palette(alternatebase);
-    }}
-    """
+def _install_window_theme_filter(app: QApplication) -> None:
+    global _FONT_THEME_FILTER
+    if _FONT_THEME_FILTER is None:
+        _FONT_THEME_FILTER = _ThemeWindowFilter(app)
+    app.installEventFilter(_FONT_THEME_FILTER)
 
 
-def _light_palette() -> QPalette:
-    """Explicit light palette tuned to a clean MolManager-like light theme."""
-    p = QPalette()
-    p.setColor(QPalette.Window, QColor(245, 247, 250))
-    p.setColor(QPalette.WindowText, QColor(25, 32, 44))
-    p.setColor(QPalette.Base, QColor(255, 255, 255))
-    p.setColor(QPalette.AlternateBase, QColor(238, 240, 244))
-    p.setColor(QPalette.ToolTipBase, QColor(255, 255, 255))
-    p.setColor(QPalette.ToolTipText, QColor(20, 20, 20))
-    p.setColor(QPalette.Text, QColor(25, 32, 44))
-    p.setColor(QPalette.Button, QColor(236, 239, 244))
-    p.setColor(QPalette.ButtonText, QColor(25, 32, 44))
-    p.setColor(QPalette.BrightText, QColor(255, 255, 255))
-    p.setColor(QPalette.Link, QColor(46, 103, 200))
-    p.setColor(QPalette.Highlight, QColor(64, 119, 244))
-    p.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
-    p.setColor(QPalette.Mid, QColor(183, 190, 199))
-    p.setColor(QPalette.Dark, QColor(118, 126, 136))
-    p.setColor(QPalette.Light, QColor(255, 255, 255))
-    p.setColor(QPalette.Shadow, QColor(63, 73, 84))
-    p.setColor(QPalette.Disabled, QPalette.Text, QColor(148, 156, 168))
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(148, 156, 168))
-    p.setColor(QPalette.Disabled, QPalette.WindowText, QColor(148, 156, 168))
-    return p
+def _apply_native_window_chrome(window: QWidget, palette: QPalette) -> None:
+    """Best-effort Windows caption colors; other platforms own their decorations."""
+    if sys.platform != "win32":
+        return
+    try:
+        handle = int(window.winId())
+        dark_mode = ctypes.c_int(int(_CURRENT_THEME != THEME_LIGHT))
+        caption = palette.color(QPalette.ColorRole.Window)
+        text = palette.color(QPalette.ColorRole.WindowText)
+        caption_color = ctypes.c_int(caption.red() | caption.green() << 8 | caption.blue() << 16)
+        text_color = ctypes.c_int(text.red() | text.green() << 8 | text.blue() << 16)
+        dwmapi = getattr(ctypes, "windll").dwmapi
+        set_attribute = dwmapi.DwmSetWindowAttribute
+        set_attribute.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.c_uint,
+        ]
+        set_attribute.restype = ctypes.c_long
 
+        def apply_attribute(attribute: int, value: ctypes.c_int) -> bool:
+            result = set_attribute(
+                ctypes.c_void_p(handle),
+                attribute,
+                ctypes.byref(value),
+                ctypes.sizeof(value),
+            )
+            return result == 0
 
-def _dark_palette() -> QPalette:
-    """
-    Dark palette with the same role layout as Fusion light.
-
-    Accent roles (highlight, links) are copied from the light palette so selection
-    and focus colors match; only surfaces and text are darkened.
-    """
-    light = _light_palette()
-    text = QColor(240, 240, 240)
-    disabled = QColor(128, 128, 128)
-    p = QPalette()
-    p.setColor(QPalette.Window, QColor(53, 53, 53))
-    p.setColor(QPalette.WindowText, text)
-    p.setColor(QPalette.Base, QColor(35, 35, 35))
-    p.setColor(QPalette.AlternateBase, QColor(45, 45, 45))
-    p.setColor(QPalette.ToolTipBase, QColor(53, 53, 53))
-    p.setColor(QPalette.ToolTipText, text)
-    p.setColor(QPalette.Text, text)
-    p.setColor(QPalette.Button, QColor(68, 68, 68))
-    p.setColor(QPalette.ButtonText, text)
-    p.setColor(QPalette.BrightText, light.color(QPalette.BrightText))
-    p.setColor(QPalette.Link, light.color(QPalette.Link))
-    p.setColor(QPalette.Highlight, light.color(QPalette.Highlight))
-    p.setColor(QPalette.HighlightedText, light.color(QPalette.HighlightedText))
-    p.setColor(QPalette.Mid, QColor(128, 128, 128))
-    p.setColor(QPalette.Dark, QColor(30, 30, 30))
-    p.setColor(QPalette.Light, QColor(75, 75, 75))
-    p.setColor(QPalette.Shadow, QColor(15, 15, 15))
-    p.setColor(QPalette.Disabled, QPalette.Text, disabled)
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, disabled)
-    return p
-
-
-def _hsv_qcolor(h: float, s: float, v: float) -> QColor:
-    r, g, b = colorsys.hsv_to_rgb(h % 1.0, max(0.0, min(1.0, s)), max(0.0, min(1.0, v)))
-    return QColor(int(r * 255), int(g * 255), int(b * 255))
-
-
-def _contrasting_text(bg: QColor) -> QColor:
-    # Relative luminance (sRGB-ish) → black or white for readable labels.
-    lum = (0.2126 * bg.red() + 0.7152 * bg.green() + 0.0722 * bg.blue()) / 255.0
-    return QColor(18, 18, 22) if lum > 0.55 else QColor(250, 248, 255)
-
-
-def _groovy_palette(rng: random.Random | None = None) -> QPalette:
-    """Random high-saturation psychedelic Fusion palette (readable text contrast)."""
-    rng = rng or random.Random()
-    base_h = rng.random()
-
-    def shift(delta: float, s: float, v: float) -> QColor:
-        return _hsv_qcolor(base_h + delta, s, v)
-
-    window = shift(0.00, rng.uniform(0.55, 0.95), rng.uniform(0.35, 0.75))
-    base = shift(0.12, rng.uniform(0.45, 0.90), rng.uniform(0.22, 0.55))
-    alt = shift(0.22, rng.uniform(0.50, 0.95), rng.uniform(0.30, 0.65))
-    button = shift(0.35, rng.uniform(0.60, 1.0), rng.uniform(0.40, 0.85))
-    highlight = shift(0.55, rng.uniform(0.75, 1.0), rng.uniform(0.55, 0.95))
-    link = shift(0.70, rng.uniform(0.70, 1.0), rng.uniform(0.55, 0.95))
-    mid = shift(0.08, rng.uniform(0.25, 0.55), rng.uniform(0.35, 0.60))
-    light = shift(0.05, rng.uniform(0.35, 0.70), rng.uniform(0.70, 0.95))
-    dark = shift(0.02, rng.uniform(0.40, 0.80), rng.uniform(0.12, 0.30))
-    tip = shift(0.40, rng.uniform(0.50, 0.90), rng.uniform(0.35, 0.70))
-
-    text = _contrasting_text(base)
-    window_text = _contrasting_text(window)
-    button_text = _contrasting_text(button)
-    hi_text = _contrasting_text(highlight)
-    tip_text = _contrasting_text(tip)
-    disabled = QColor(mid.red(), mid.green(), mid.blue(), 160)
-
-    p = QPalette()
-    p.setColor(QPalette.Window, window)
-    p.setColor(QPalette.WindowText, window_text)
-    p.setColor(QPalette.Base, base)
-    p.setColor(QPalette.AlternateBase, alt)
-    p.setColor(QPalette.ToolTipBase, tip)
-    p.setColor(QPalette.ToolTipText, tip_text)
-    p.setColor(QPalette.Text, text)
-    p.setColor(QPalette.Button, button)
-    p.setColor(QPalette.ButtonText, button_text)
-    p.setColor(QPalette.BrightText, QColor(255, 255, 80))
-    p.setColor(QPalette.Link, link)
-    p.setColor(QPalette.Highlight, highlight)
-    p.setColor(QPalette.HighlightedText, hi_text)
-    p.setColor(QPalette.Mid, mid)
-    p.setColor(QPalette.Dark, dark)
-    p.setColor(QPalette.Light, light)
-    p.setColor(QPalette.Shadow, QColor(10, 5, 20))
-    p.setColor(QPalette.Disabled, QPalette.Text, disabled)
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, disabled)
-    p.setColor(QPalette.Disabled, QPalette.WindowText, disabled)
-    return p
-
-
-def palette_for_theme(theme: str, *, rng: random.Random | None = None) -> QPalette:
-    """Return a QPalette for *theme* (groovy is freshly randomized each call)."""
-    name = _normalize_theme_name(theme)
-    if name == THEME_DARK:
-        return _dark_palette()
-    if name == THEME_GROOVY:
-        return _groovy_palette(rng)
-    if is_custom_theme_id(name):
-        return _custom_palette(load_custom_theme_colors(name))
-    return _light_palette()
+        if not apply_attribute(20, dark_mode):
+            apply_attribute(19, dark_mode)  # Windows 10's earlier attribute value.
+        apply_attribute(35, caption_color)
+        apply_attribute(36, text_color)
+    except Exception:
+        # Native decorations are not uniformly themeable across Windows versions.
+        return
 
 
 def refresh_open_windows_theme(app: QApplication | None = None) -> None:
-    """
-    Push the current application palette to open top-level windows and invoke
-    optional ``refresh_theme()`` hooks (sketcher, tool dialogs, etc.).
-    """
+    """Refresh existing top-level windows and any optional widget theme hooks."""
     if app is None:
-        app = QApplication.instance()
-    if app is None:
-        return
-    pal = app.palette()
-    for w in app.topLevelWidgets():
+        instance = QApplication.instance()
+        if not isinstance(instance, QApplication):
+            return
+        app = instance
+    palette = app.palette()
+    for window in app.topLevelWidgets():
         try:
-            if w is None:
-                continue
-            w.setPalette(pal)
-            refresh = getattr(w, "refresh_theme", None)
+            window.setPalette(palette)
+            _apply_native_window_chrome(window, palette)
+            refresh = getattr(window, "refresh_theme", None)
             if callable(refresh):
                 refresh()
-            style = w.style()
+            style = window.style()
             if style is not None:
-                style.unpolish(w)
-                style.polish(w)
-            w.update()
+                style.unpolish(window)
+                style.polish(window)
+            window.update()
         except RuntimeError:
-            # Widget deleted between listing and update.
+            # A widget can be deleted between the top-level snapshot and refresh.
             continue
 
 
+def initialize_application_theme(app: QApplication | None = None) -> str:
+    """Load and apply the persisted theme before any application windows are created."""
+    return apply_application_theme(app, load_saved_theme_name())
+
+
 def apply_application_theme(app: QApplication | None, theme: str) -> str:
-    """Apply *theme* to *app*; returns the theme name actually applied."""
+    """Apply one normalized theme to the application and its existing/future windows."""
     global _CURRENT_THEME
-    theme = _normalize_theme_name(theme)
-    _CURRENT_THEME = theme
+    name = _normalize_theme_name(theme)
+    _CURRENT_THEME = name
     if app is None:
-        return theme
+        return name
     app.setStyle("Fusion")
-    app.setPalette(palette_for_theme(theme))
-    # No global stylesheet — Fusion draws from the palette so modes share chrome layout.
-    app.setStyleSheet("")
+    app.setPalette(palette_for_theme(name))
+    _install_window_theme_filter(app)
     refresh_open_windows_theme(app)
-    return theme
+    return name
