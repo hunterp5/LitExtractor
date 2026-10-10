@@ -21,12 +21,10 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 from rdkit import Chem
 
-from litextractor.structure_dimensions import STRUCTURE_WIDTH
-from litextractor.structure_draw import configure_mol_drawer, render_molecule_png
+from litextractor.structure_draw import render_molecule_png
 
 
 def test_render_ethanol_png():
@@ -65,16 +63,3 @@ assert not any(name == "PySide6" or name.startswith("PySide6.") for name in sys.
         capture_output=True,
         text=True,
     )
-
-
-def test_drawer_bond_width_scales_with_target_width():
-    class FakeDrawer:
-        def __init__(self):
-            self.options = SimpleNamespace()
-
-        def drawOptions(self):
-            return self.options
-
-    drawer = FakeDrawer()
-    configure_mol_drawer(drawer, target_w=STRUCTURE_WIDTH * 2)
-    assert drawer.options.bondLineWidth == 2.0

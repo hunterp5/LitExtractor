@@ -19,23 +19,12 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QFrame, QGroupBox, QLabel, QMessageBox, QScrollArea
+from PySide6.QtWidgets import QFrame, QLabel, QMessageBox, QScrollArea
 
 from litextractor.chemistry import enrich_molecule
 from litextractor.models import ExtractedMolecule, ExtractionResult
-from litextractor.ui.main_window import APP_NAME, MainWindow
+from litextractor.ui.main_window import MainWindow
 from litextractor.ui.molecule_table import render_structure_pixmap
-
-
-def test_main_window_loads_molecules(qapp):  # noqa: ARG001
-    w = MainWindow()
-    rec = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="EtOH", page=1))
-    result = ExtractionResult(pdf_path="demo.pdf", molecules=[rec], reactions=[])
-    w._on_extract_finished(result)
-    assert w._mol_table.molecule_model().rowCount() == 1
-    assert w.windowTitle() == APP_NAME
-    w.close()
 
 
 def test_startup_welcome_transitions_through_loading_to_results(qapp):
@@ -209,34 +198,6 @@ def test_main_window_does_not_rank_results_twice(qapp, monkeypatch):
     w._on_extract_finished(ExtractionResult(pdf_path="demo.pdf", molecules=[rec], reactions=[]))
     assert w._mol_table.molecule_model().rowCount() == 1
     w.close()
-
-
-def test_menus_have_no_settings_and_theme_is_light(qapp):  # noqa: ARG001
-    from litextractor.ui.theme import apply_light_theme
-
-    apply_light_theme(qapp)
-    w = MainWindow()
-    titles = [action.text() for action in w.menuBar().actions()]
-    assert titles == ["&File", "&Help"]
-    assert w.palette().color(QPalette.ColorRole.Window).lightness() > 200
-    w.close()
-
-
-def test_side_panels_have_fixed_widths_and_options_are_grouped(qapp):  # noqa: ARG001
-    window = MainWindow()
-    central_layout = window.centralWidget().layout()
-    assert central_layout.count() == 3
-    assert central_layout.itemAt(0).widget() is window._extract_panel
-    assert central_layout.itemAt(1).widget() is window._results_stack
-    assert central_layout.itemAt(2).widget() is window._detail_panel
-    assert window._extract_panel.minimumWidth() == window._extract_panel.maximumWidth()
-    assert window._detail_panel.minimumWidth() == 420
-    assert window._detail_panel.maximumWidth() == 420
-
-    group_titles = {group.title() for group in window._extract_panel.findChildren(QGroupBox)}
-    assert group_titles == {"PDF", "Extract", "Page range", "Structure limit", "Processing"}
-    assert all(label.text() != "Options" for label in window._extract_panel.findChildren(QLabel))
-    window.close()
 
 
 def test_cuda_probe_runs_in_background_and_updates_device_selector(

@@ -20,12 +20,15 @@ from __future__ import annotations
 
 import logging
 
-from rdkit import Chem
+from rdkit import Chem, RDLogger
 from rdkit.Chem import Descriptors, rdMolDescriptors
 
 from .models import ExtractedMolecule
 
 logger = logging.getLogger(__name__)
+
+# Malformed OCR'd structures are expected; RDKit's own warnings would only spam the console.
+RDLogger.DisableLog("rdApp.*")
 
 
 def parse_mol(*, smiles: str = "", molfile: str = "") -> Chem.Mol | None:

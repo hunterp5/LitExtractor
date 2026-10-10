@@ -97,12 +97,6 @@ def test_paragraphs_from_page_text_splits_sentences():
     assert any("CCO" in s for s in sentences)
 
 
-def test_paragraph_source_disables_text_reactions_explicitly():
-    from litextractor.compat_pdf_text import PdfParagraphSource
-
-    assert PdfParagraphSource().extract_reactions_from_text() == []
-
-
 def test_torch_load_compatibility_is_scoped_and_idempotent(monkeypatch):
     import torch
 

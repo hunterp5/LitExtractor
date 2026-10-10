@@ -23,7 +23,7 @@ import logging
 from PySide6.QtCore import QThread, Signal
 
 from ..extraction_errors import ExtractionCancelled
-from ..models import ExtractOptions, ExtractionResult
+from ..models import ExtractOptions
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,6 @@ class ExtractWorker(QThread):
 
     def run(self) -> None:
         try:
-            from ..rdkit_env import configure_rdkit_for_desktop_app
-
-            configure_rdkit_for_desktop_app()
             from ..extraction import extract_from_pdf
 
             result = extract_from_pdf(
@@ -61,8 +58,5 @@ class ExtractWorker(QThread):
         except Exception as exc:
             logger.exception("Extraction worker failed")
             self.failed.emit(str(exc))
-            return
-        if not isinstance(result, ExtractionResult):
-            self.failed.emit("Extractor returned an unexpected result.")
             return
         self.finished_ok.emit(result)
