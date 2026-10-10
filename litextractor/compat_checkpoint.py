@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
+from .cancellation import raise_if_cancelled
 logger = logging.getLogger(__name__)
 
 _allow_legacy_checkpoint_loads: ContextVar[bool] = ContextVar(
@@ -89,6 +90,7 @@ def patch_torch_load_weights_only_default() -> None:
         return
 
     def _load(*args: Any, **kwargs: Any) -> Any:
+        raise_if_cancelled()
         if _allow_legacy_checkpoint_loads.get():
             kwargs.setdefault("weights_only", False)
         return load(*args, **kwargs)

@@ -252,6 +252,7 @@ def test_prepare_openchemie_imports_applies_patches_in_order(monkeypatch):
         "patch_transformers_torch_load_check",
         "patch_iopath_http_cache_filenames",
         "patch_empty_molscribe_results",
+        "patch_pdfminer_cancellation",
         "patch_openchemie_layout_crop_context",
         "patch_openchemie_figure_fallback",
         "patch_openchemie_molecule_crops",

@@ -17,8 +17,13 @@
 """Extraction-specific exceptions shared by focused implementation modules."""
 
 
-class ExtractionCancelled(RuntimeError):
-    """Raised when the GUI asks the worker to stop between extractor steps."""
+class ExtractionCancelled(BaseException):
+    """Raised when the GUI asks the worker to stop.
+
+    Like ``KeyboardInterrupt`` this derives from ``BaseException`` on purpose: cancellation is
+    raised from inside third-party model code, and their ``except Exception`` fallbacks (for
+    example Transformers' checkpoint loader) must not swallow it or turn it into another error.
+    """
 
 
 class ExtractorUnavailableError(RuntimeError):

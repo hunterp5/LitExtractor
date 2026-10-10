@@ -42,6 +42,7 @@ from .compat_figures import (
     patch_openchemie_figure_fallback,
     patch_openchemie_layout_crop_context,
     patch_openchemie_molecule_crops,
+    patch_pdfminer_cancellation,
 )
 from .compat_pdf_text import (
     PdfParagraphSource,
@@ -83,6 +84,7 @@ __all__ = [
     "patch_openchemie_figure_fallback",
     "patch_openchemie_layout_crop_context",
     "patch_openchemie_molecule_crops",
+    "patch_pdfminer_cancellation",
     "patch_torch_load_weights_only_default",
     "patch_transformers_torch_load_check",
     "prepare_openchemie_imports",
@@ -131,6 +133,7 @@ def prepare_openchemie_imports() -> None:
     patch_transformers_torch_load_check()
     patch_iopath_http_cache_filenames()
     patch_empty_molscribe_results()
+    patch_pdfminer_cancellation()
     patch_openchemie_layout_crop_context()
     patch_openchemie_figure_fallback()
     patch_openchemie_molecule_crops()

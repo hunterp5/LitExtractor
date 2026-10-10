@@ -29,8 +29,39 @@ from .crop_context import (
 logger = logging.getLogger(__name__)
 
 
+def patch_pdfminer_cancellation() -> None:
+    """Check for cancellation before each pdfminer page parse.
+
+    OpenChemIE parses one page per call, once per detected figure or table, in pure Python that
+    no torch hook can interrupt. Checking before each call stops the chain at the next page.
+    """
+    try:
+        import pdfminer.high_level as high_level
+    except Exception:
+        return
+    original = high_level.extract_pages
+    if getattr(original, "_litextractor_patched", False):
+        return
+
+    from .cancellation import raise_if_cancelled
+
+    def _extract_pages(*args: Any, **kwargs: Any) -> Any:
+        raise_if_cancelled()
+        return original(*args, **kwargs)
+
+    _extract_pages._litextractor_patched = True  # type: ignore[attr-defined]
+    _extract_pages.__wrapped__ = original  # type: ignore[attr-defined]
+    high_level.extract_pages = _extract_pages
+
+
 def patch_empty_molscribe_results() -> None:
-    """Guard MolScribe against empty detection results from layoutparser or empty crops."""
+    """Make MolScribe's graph-to-SMILES step empty-safe, pool-free, and cancellable.
+
+    Upstream builds a fresh ``multiprocessing.Pool`` on every call. On Windows that spawns up
+    to 16 processes that each re-import the scientific stack, and with its ``chunksize=128`` any
+    call with at most 128 molecules is handled by one worker anyway. The per-molecule work is
+    small, so converting in-process is faster and lets a cancel request stop between molecules.
+    """
     try:
         import molscribe.chemistry as chemistry
         import molscribe.interface as interface_module
@@ -42,18 +73,24 @@ def patch_empty_molscribe_results() -> None:
     ):
         return
 
-    original = chemistry.convert_graph_to_smiles
-
-    def _safe_convert_graph_to_smiles(coords, symbols, edges, images=None, num_workers=16):
+    def _convert_graph_to_smiles_in_process(
+        coords, symbols, edges, images=None, num_workers=16  # noqa: ARG001
+    ):
         if not coords:
             return [], [], 0.0
-        try:
-            return original(coords, symbols, edges, images=images, num_workers=num_workers)
-        except ValueError as exc:
-            if "not enough values to unpack" in str(exc):
-                return [], [], 0.0
-            raise
+        import numpy as np
 
+        from .cancellation import raise_if_cancelled
+
+        columns = (coords, symbols, edges) if images is None else (coords, symbols, edges, images)
+        results = []
+        for item in zip(*columns):
+            raise_if_cancelled()
+            results.append(chemistry._convert_graph_to_smiles(*item))
+        smiles_list, molblock_list, success = zip(*results)
+        return smiles_list, molblock_list, float(np.mean(success))
+
+    _safe_convert_graph_to_smiles = _convert_graph_to_smiles_in_process
     _safe_convert_graph_to_smiles._litextractor_patched = True  # type: ignore[attr-defined]
     chemistry.convert_graph_to_smiles = _safe_convert_graph_to_smiles
     interface_module.convert_graph_to_smiles = _safe_convert_graph_to_smiles

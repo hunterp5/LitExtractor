@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Callable, Protocol
 
 from .chemistry import (
@@ -28,6 +30,7 @@ from .chemistry import (
     parse_mol,
     prioritize_molecules,
 )
+from .cancellation import cancel_on_model_forward
 from .crop_context import use_molecule_crop_margin
 from .extraction_results import (
     _unpack_label,
@@ -52,6 +55,13 @@ from .openchemie_compat import openchemie_checkpoint_loads
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str], None]
+
+
+@contextmanager
+def _model_call(should_cancel: Callable[[], bool] | None) -> Iterator[None]:
+    """Scope for one OpenChemIE call: legacy checkpoint loading plus prompt cancellation."""
+    with openchemie_checkpoint_loads(), cancel_on_model_forward(should_cancel):
+        yield
 
 __all__ = [
     "ExtractOptions",
@@ -280,7 +290,7 @@ def _extract_from_pdf(
             _check_cancel()
             _progress("Extracting molecules from figures…")
             try:
-                with openchemie_checkpoint_loads():
+                with _model_call(should_cancel):
                     with use_molecule_crop_margin(options.crop_margin):
                         figures = _normalize_openchemie_pages(
                             client.extract_molecules_from_figures_in_pdf(work_pdf, **kwargs)
@@ -297,7 +307,7 @@ def _extract_from_pdf(
             _check_cancel()
             _progress("Extracting chemical names from text…")
             try:
-                with openchemie_checkpoint_loads():
+                with _model_call(should_cancel):
                     pages = client.extract_molecules_from_text_in_pdf(work_pdf, **kwargs)
                 molecules.extend(molecules_from_text_results(pages))
                 molecules = _trim(molecules, warnings)
@@ -311,7 +321,7 @@ def _extract_from_pdf(
             _check_cancel()
             _progress("Resolving molecule–label coreferences…")
             try:
-                with openchemie_checkpoint_loads():
+                with _model_call(should_cancel):
                     corefs = _normalize_openchemie_pages(
                         client.extract_molecule_corefs_from_figures_in_pdf(
                             work_pdf, **kwargs, molscribe=False, ocr=True
@@ -328,7 +338,7 @@ def _extract_from_pdf(
             _check_cancel()
             _progress("Extracting reactions…")
             try:
-                with openchemie_checkpoint_loads():
+                with _model_call(should_cancel):
                     payload = client.extract_reactions_from_pdf(work_pdf, **kwargs)
                 if isinstance(payload, dict):
                     _normalize_openchemie_pages(payload.get("figures"))
