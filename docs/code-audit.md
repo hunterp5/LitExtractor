@@ -26,8 +26,9 @@ The project has useful boundaries between shared records, chemistry, extraction,
 | Medium | Export I/O failures escaped GUI callbacks without an actionable message. [UI](../patentextractor/ui/main_window.py) · [Writers](../patentextractor/export.py) | Done | Export handling is centralized, errors include the destination and exception, and the remembered folder changes only after success. |
 | Medium | Theme tests touched the user's persistent `QSettings`, and tests could leak shared palette/module state. [Fixtures](../tests/conftest.py) · [Theme tests](../tests/test_theme.py) · [Shim tests](../tests/test_openchemie_compat.py) | Done | Tests use a temporary QSettings path and restore palette/module state. |
 | Medium | `MainWindow` owns widget construction, settings, extraction lifecycle, results, and export. [Source](../patentextractor/ui/main_window.py) | Open | Extract focused view/controller components incrementally; preserve public behavior. |
+| Medium | A completed extraction replaced the prior visible tables, making it difficult to compare multiple runs in one session. | Done | Each run is retained in its own result tab, right-click deletion requires confirmation, and exports use the active result tab. The molecule/reaction pair is owned by [ExtractionResultTab](../patentextractor/ui/extraction_result_tab.py). |
 | Medium | `extraction.py` mixed vendor-result parsing, image conversion/cropping, PDF slicing, runtime setup, orchestration, molecule merging, and coreference linking. [Orchestration facade](../patentextractor/extraction.py) · [Result normalization](../patentextractor/extraction_results.py) · [Coreference linking](../patentextractor/extraction_coreference.py) · [PDF slicing](../patentextractor/extraction_pdf.py) · [Runtime setup](../patentextractor/extraction_runtime.py) | Done | Result normalization, coreference linking, PDF-window handling, and runtime setup are focused modules; `extraction.py` now coordinates the extraction pipeline and re-exports the existing compatibility API. |
-| Medium | `openchemie_compat.py` combines shims, downloads, monkey patches, text parsing, and geometry/layout patches. [Source](../patentextractor/openchemie_compat.py) | Open | Divide compatibility concerns while retaining one small, documented preparation entry point. |
+| Medium | `openchemie_compat.py` combines shims, downloads, monkey patches, text parsing, and geometry/layout patches. [Compatibility facade](../patentextractor/openchemie_compat.py) · [HTTP weights](../patentextractor/http_weights.py) | In progress | The model-weight URL/download/cache concern is now isolated; continue separating other cohesive concerns while retaining the preparation entry point. |
 | Medium | Reaction payload parsing trusts nested values to have the expected shape; malformed vendor data can discard a stage's results. [Source](../patentextractor/extraction.py) | Done | Nested mappings/lists and page values are validated; malformed entries are logged and skipped individually. |
 | Medium | Coreference pair parsing accepts negative indices and can abort on non-integer values. [Source](../patentextractor/extraction.py) | Done | Page, box, and pair inputs are validated; negative, fractional, non-integer, and out-of-range indices are skipped with warnings. |
 | Medium | Merging kept only one page and could omit source entries when records already carried multiple sources; ranking used the retained page. | Done | Preserve sorted page numbers and all sources, keep `page` as the earliest-page compatibility field, rank by earliest page, and surface all pages in UI/exports. |
@@ -57,6 +58,8 @@ The following remediation is currently in the worktree and has not yet been comm
 - Moved device selection, dependency discovery, import diagnostics, and OpenChemIE construction into `extraction_runtime.py`; `extraction.py` retains compatibility re-exports.
 - Moved runtime-focused tests into `tests/test_extraction_runtime.py` and added identity coverage for the compatibility re-exports.
 - Added construction-time extraction-option validation and retained all merged molecule pages/sources through ranking, display, and export while preserving the legacy earliest `page` field.
+- Enabled figure–label coreferences by default and kept each successful extraction in a separate result tab with confirmed deletion and active-tab-only exports.
+- Extracted LayoutParser weight metadata, URL conversion, HTML detection, robust downloads, and iopath cache patching into `http_weights.py`; `openchemie_compat.py` re-exports the prior helper names and remains the setup entry point. Added a regression test for those compatibility aliases.
 
 This remediation is tracked as a separate audit-fix set from the earlier runtime-cache change.
 
@@ -64,7 +67,7 @@ The prior, pre-audit work was committed as `4d7483b` (`Cache and serialize OpenC
 
 ## Validation history
 
-- Latest validation: default suite **77 passed, 1 skipped**; `ruff check patentextractor tests` passed.
+- Last completed validation before the current HTTP-weight split: default suite **80 passed, 1 skipped**; `ruff check patentextractor tests` passed. Re-validation after the current split is pending.
 - VS Code's file diagnostics reported no errors in the modified Python files.
 - Six third-party deprecation/future warnings were emitted by installed dependencies during tests.
 - The first broad audit test run happened before QSettings isolation was added and cleared the saved theme key. Future suite runs use a temporary settings directory; restore the desired theme in the app if the previous preference was not Light/default.
@@ -72,6 +75,6 @@ The prior, pre-audit work was committed as `4d7483b` (`Cache and serialize OpenC
 
 ## Follow-up sequence
 
-1. Assess `openchemie_compat.py` and UI decomposition in small steps, retaining compatibility entry points and regression tests.
+1. Validate the HTTP-weight split, then continue assessing `openchemie_compat.py` and UI decomposition in small steps, retaining compatibility entry points and regression tests.
 2. Separate Qt settings from pure drawing/layout behavior; clean up dependency and type/lint policy.
 3. Re-run default tests and Ruff after each coherent change; run integration tests only when local models and required system tools are available.

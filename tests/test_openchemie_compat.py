@@ -93,6 +93,21 @@ def test_looks_like_html(tmp_path):
     assert not looks_like_html(str(bin_file))
 
 
+def test_http_weight_helpers_remain_reexported():
+    from patentextractor import http_weights, openchemie_compat
+
+    assert openchemie_compat.LAYOUTPARSER_HF_WEIGHTS is http_weights.LAYOUTPARSER_HF_WEIGHTS
+    assert openchemie_compat.safe_http_cache_filename is http_weights.safe_http_cache_filename
+    assert openchemie_compat.huggingface_weight_url is http_weights.huggingface_weight_url
+    assert openchemie_compat.dropbox_direct_url is http_weights.dropbox_direct_url
+    assert openchemie_compat.looks_like_html is http_weights.looks_like_html
+    assert openchemie_compat.download_url_to_file is http_weights.download_url_to_file
+    assert (
+        openchemie_compat.patch_iopath_http_cache_filenames
+        is http_weights.patch_iopath_http_cache_filenames
+    )
+
+
 def test_paragraphs_from_page_text_splits_sentences():
     blocks = paragraphs_from_page_text("Compound CCO was used. It is ethanol.")
     sentences = [s.strip() for block in blocks for s in block]

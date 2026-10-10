@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPalette, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QHeaderView,
@@ -73,13 +73,34 @@ def render_structure_pixmap(rec: ExtractedMolecule) -> QPixmap:
         return QPixmap()
 
 
+def render_crop_pixmap(pixmap: QPixmap) -> QPixmap:
+    """Fit a patent crop into a transparent canvas matching the Structure image size."""
+    if pixmap.isNull():
+        return QPixmap()
+    canvas = QPixmap(structure_width(), structure_height())
+    canvas.fill(Qt.transparent)
+    scaled = pixmap.scaled(
+        canvas.size(),
+        Qt.KeepAspectRatio,
+        Qt.SmoothTransformation,
+    )
+    painter = QPainter(canvas)
+    x = (canvas.width() - scaled.width()) // 2
+    y = (canvas.height() - scaled.height()) // 2
+    painter.drawPixmap(x, y, scaled)
+    painter.end()
+    return canvas
+
+
 class MoleculeTableModel(QAbstractTableModel):
     """Rows of extracted molecules with optional structure pixmaps."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._rows: list[ExtractedMolecule] = []
-        self._pixmaps: list[QPixmap] = []
+        self._pixmaps: list[QPixmap | None] = []
+        self._crop_pixmaps: list[QPixmap | None] = []
+        self._quality_texts: list[str | None] = []
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
         if parent.isValid():
@@ -107,17 +128,17 @@ class MoleculeTableModel(QAbstractTableModel):
         col = index.column()
         if role == Qt.DecorationRole:
             if col == COL_STRUCTURE:
-                pix = self._pixmaps[index.row()]
+                pix = self._structure_pixmap(index.row())
                 return pix if not pix.isNull() else None
             if col == COL_PATENT_CROP:
-                crop = pixmap_from_png(rec.crop_png) if rec.crop_png else QPixmap()
+                crop = self._crop_pixmap(index.row())
                 return crop if not crop.isNull() else None
         if role == Qt.DisplayRole:
             if col == COL_STRUCTURE:
-                return "" if not self._pixmaps[index.row()].isNull() else "—"
+                return "" if not self._structure_pixmap(index.row()).isNull() else "—"
             if col == COL_PATENT_CROP:
                 return "" if rec.crop_png else "—"
-            return self._text_for(rec, col)
+            return self._text_for(rec, col, index.row())
         if role == Qt.TextAlignmentRole and col not in (COL_STRUCTURE, COL_PATENT_CROP):
             if col in (4, 6, 8):
                 return int(Qt.AlignRight | Qt.AlignVCenter)
@@ -126,7 +147,24 @@ class MoleculeTableModel(QAbstractTableModel):
             return rec
         return None
 
-    def _text_for(self, rec: ExtractedMolecule, col: int) -> str:
+    def _structure_pixmap(self, row: int) -> QPixmap:
+        pixmap = self._pixmaps[row]
+        if pixmap is None:
+            pixmap = render_structure_pixmap(self._rows[row])
+            self._pixmaps[row] = pixmap
+        return pixmap
+
+    def _crop_pixmap(self, row: int) -> QPixmap:
+        pixmap = self._crop_pixmaps[row]
+        if pixmap is None:
+            crop_png = self._rows[row].crop_png
+            pixmap = pixmap_from_png(crop_png) if crop_png else QPixmap()
+            if not pixmap.isNull():
+                pixmap = render_crop_pixmap(pixmap)
+            self._crop_pixmaps[row] = pixmap
+        return pixmap
+
+    def _text_for(self, rec: ExtractedMolecule, col: int, row: int) -> str:
         if col == 2:
             return rec.smiles
         if col == 3:
@@ -136,7 +174,11 @@ class MoleculeTableModel(QAbstractTableModel):
         if col == 5:
             return "; ".join(rec.sources) if rec.sources else rec.source
         if col == 6:
-            return f"{molecule_quality_score(rec):.3f}"
+            quality_text = self._quality_texts[row]
+            if quality_text is None:
+                quality_text = f"{molecule_quality_score(rec):.3f}"
+                self._quality_texts[row] = quality_text
+            return quality_text
         if col == 7:
             return rec.formula
         if col == 8:
@@ -160,14 +202,16 @@ class MoleculeTableModel(QAbstractTableModel):
         self._rows = (
             list(molecules) if already_prioritized else prioritize_molecules(list(molecules))
         )
-        self._pixmaps = [render_structure_pixmap(rec) for rec in self._rows]
+        self._pixmaps = [None] * len(self._rows)
+        self._crop_pixmaps = [None] * len(self._rows)
+        self._quality_texts = [None] * len(self._rows)
         self.endResetModel()
 
     def rerender_structures(self) -> None:
         if not self._rows:
             return
         self.beginResetModel()
-        self._pixmaps = [render_structure_pixmap(rec) for rec in self._rows]
+        self._pixmaps = [None] * len(self._rows)
         self.endResetModel()
 
     def clear(self) -> None:
@@ -222,13 +266,34 @@ class StructureDelegate(QStyledItemDelegate):
         if isinstance(pix, QPixmap) and not pix.isNull():
             size_w = max(sh.width(), pix.width() + 8)
             size_h = max(sh.height(), pix.height() + 8)
-            if index.column() == COL_PATENT_CROP:
-                size_w = max(size_w, 110)
-                size_h = max(size_h, 70)
             return QSize(size_w, size_h)
-        if index.column() == COL_PATENT_CROP:
-            return QSize(110, 70)
         return QSize(structure_width(), max(sh.height(), structure_height()))
+
+
+class PatentCropDelegate(QStyledItemDelegate):
+    """Paints patent crops within a consistent, aspect-preserving thumbnail area."""
+
+    def paint(self, painter, option, index) -> None:  # noqa: N802
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        palette = QApplication.palette() if QApplication.instance() else opt.palette
+        painter.fillRect(opt.rect, palette.color(QPalette.Base))
+
+        pix = index.data(Qt.DecorationRole)
+        if isinstance(pix, QPixmap) and not pix.isNull():
+            x = opt.rect.x() + (opt.rect.width() - pix.width()) // 2
+            y = opt.rect.y() + (opt.rect.height() - pix.height()) // 2
+            painter.drawPixmap(x, y, pix)
+            return
+
+        painter.save()
+        painter.setFont(opt.font)
+        painter.setPen(opt.palette.text().color())
+        painter.drawText(opt.rect, int(Qt.AlignCenter), "—")
+        painter.restore()
+
+    def sizeHint(self, option, index):  # noqa: N802, ARG002
+        return QSize(structure_column_minimum_width(), structure_height())
 
 
 class MoleculeTableView(QTableView):
@@ -238,8 +303,10 @@ class MoleculeTableView(QTableView):
         super().__init__(parent)
         self._model = MoleculeTableModel(self)
         self._delegate = StructureDelegate(self)
+        self._crop_delegate = PatentCropDelegate(self)
         self.setModel(self._model)
         self.setItemDelegateForColumn(COL_STRUCTURE, self._delegate)
+        self.setItemDelegateForColumn(COL_PATENT_CROP, self._crop_delegate)
         self.setSelectionBehavior(QTableView.SelectRows)
         self.setSelectionMode(QTableView.SingleSelection)
         self.setAlternatingRowColors(True)
@@ -254,7 +321,7 @@ class MoleculeTableView(QTableView):
 
     def apply_structure_layout(self) -> None:
         self.setColumnWidth(COL_STRUCTURE, structure_column_minimum_width())
-        self.setColumnWidth(COL_PATENT_CROP, 110)
+        self.setColumnWidth(COL_PATENT_CROP, structure_column_minimum_width())
         self.verticalHeader().setDefaultSectionSize(structure_row_height())
         self._delegate.set_cell_background(
             QApplication.palette().color(QPalette.Base) if QApplication.instance() else None

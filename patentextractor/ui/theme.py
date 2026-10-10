@@ -386,6 +386,39 @@ def detail_panel_stylesheet() -> str:
         background-color: palette(window);
         border-left: 1px solid palette(mid);
     }
+    QFrame#DetailCard {
+        background-color: palette(base);
+        border: 1px solid palette(mid);
+        border-radius: 8px;
+    }
+    QLabel#DetailCardTitle {
+        color: palette(windowtext);
+        font-weight: 600;
+    }
+    QLabel#DetailFieldName {
+        color: palette(mid);
+    }
+    QLabel#DetailFieldValue {
+        color: palette(windowtext);
+    }
+    QLabel#CropPreview {
+        background-color: palette(alternate-base);
+        border-radius: 6px;
+    }
+    """
+
+
+def startup_page_stylesheet() -> str:
+    """Simple centered idle/loading text styled with the active Fusion palette."""
+    return """
+    QFrame#WelcomePage {
+        background-color: palette(window);
+    }
+    QLabel#WorkspaceStatus {
+        color: palette(windowtext);
+        font-size: 14px;
+        padding: 24px;
+    }
     """
 
 

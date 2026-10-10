@@ -36,6 +36,7 @@ from patentextractor.extraction import (
     molecules_from_text_results,
     prioritize_molecules,
     reactions_from_pdf_results,
+    resolve_torch_device,
     slice_pdf_pages,
 )
 
@@ -97,6 +98,80 @@ class FakeClient:
         }
 
 
+def test_ddr2_sub_sample_reports_missing_layoutparser_diagnostics(ddr2_sub_pdf):
+    pdf_path = ddr2_sub_pdf
+    error = ModuleNotFoundError("No module named 'layoutparser'")
+    message = (
+        "OpenChemIE could not be imported while processing 'ddr2_sub.pdf'.\n"
+        "Original import error: No module named 'layoutparser'\n\n"
+        "Likely missing dependency: layoutparser"
+    )
+    assert "ddr2_sub.pdf" in message
+    assert "layoutparser" in message.lower()
+    assert pdf_path.exists()
+
+    from patentextractor.extraction import build_openchemie_import_diagnostic
+
+    diagnostic = build_openchemie_import_diagnostic(error, pdf_path=str(pdf_path))
+    assert "ddr2_sub.pdf" in diagnostic
+    assert "layoutparser" in diagnostic.lower()
+    assert "python -m pip install layoutparser" in diagnostic
+
+
+def test_missing_openchemie_runtime_dependencies_detects_missing_modules(monkeypatch):
+    import importlib
+
+    def fake_find_spec(name: str):
+        if name in {"easyocr", "IPython"}:
+            return None
+        return object()
+
+    def unexpected_import(_name: str):
+        raise AssertionError("availability checks must not import runtime packages")
+
+    monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
+    monkeypatch.setattr(importlib, "import_module", unexpected_import)
+
+    from patentextractor.extraction import missing_openchemie_runtime_dependencies
+
+    missing = missing_openchemie_runtime_dependencies()
+    assert "easyocr" in missing
+    assert "IPython" in missing
+
+
+def test_openchemie_import_error_is_not_reported_as_missing_dependency():
+    from patentextractor.extraction import build_openchemie_import_diagnostic
+
+    exc = ImportError(
+        "cannot import name 'safe_rotate_enlarged_img_size' from "
+        "'albumentations.augmentations.geometric.functional'"
+    )
+    message = build_openchemie_import_diagnostic(exc, pdf_path="ddr2_sub.pdf")
+
+    assert "missing dependency" not in message.lower()
+    assert "albumentations" in message.lower()
+    assert "incompatible" in message.lower()
+    assert "ddr2_sub.pdf" in message
+
+
+def test_pdftotext_missing_uses_windows_shim_guidance():
+    from patentextractor.extraction import (
+        build_openchemie_import_diagnostic,
+        missing_openchemie_runtime_dependencies,
+    )
+
+    missing = missing_openchemie_runtime_dependencies()
+    assert "pdftotext" not in missing
+
+    message = build_openchemie_import_diagnostic(
+        ModuleNotFoundError("No module named 'pdftotext'"),
+        pdf_path="ddr2_sub.pdf",
+    )
+    assert "pdftotext" in message.lower()
+    assert "pip install pdftotext" not in message.lower()
+    assert "PyPDF2 shim" in message
+
+
 def test_patch_empty_molscribe_results_updates_interface_alias():
     from patentextractor.openchemie_compat import patch_empty_molscribe_results
 
@@ -107,6 +182,13 @@ def test_patch_empty_molscribe_results_updates_interface_alias():
 
     assert chemistry.convert_graph_to_smiles([], [], []) == ([], [], 0.0)
     assert interface_module.convert_graph_to_smiles([], [], []) == ([], [], 0.0)
+
+
+def test_cuda_is_optional_and_falls_back_to_cpu(monkeypatch):
+    monkeypatch.setattr(extraction, "cuda_available", lambda: False)
+    assert extraction.cuda_available() is False
+    assert resolve_torch_device("cuda") == "cpu"
+    assert resolve_torch_device("cpu") == "cpu"
 
 
 def test_figure_results_enrich_ethanol():

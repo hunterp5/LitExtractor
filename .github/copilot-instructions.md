@@ -5,12 +5,7 @@ PatentExtractor is a Python desktop application for extracting chemical structur
 
 ## General coding practices
 - Support Python 3.10 and newer. Add type hints to public functions and non-obvious interfaces; use descriptive names and straightforward control flow.
-- Preserve existing behavior, public imports, and defaults unless a change is intentional. When moving public symbols, retain compatibility re-exports and add regression coverage where appropriate.
-- Validate inputs at boundaries and provide actionable errors. Catch exceptions only when recovery or a clearer user-facing message is possible; avoid silent failures and bare `except` blocks. Log recoverable failures with useful context.
-- Use context managers for files and other resources. Keep model inference, PDF conversion, and expensive rendering out of the GUI thread; use the existing worker/signal pattern and preserve cancellation behavior.
-- Do not hard-code machine-specific paths, credentials, or local model caches. Do not add local PDFs or model weights to Git. Keep dependency pins and framework constraints consistent across `requirements.txt` and `pyproject.toml`.
 - Follow the configured Ruff rules and 100-character line limit. Update the README when setup, user-visible behavior, or test workflows change.
-- Make incremental changes, inspect the diff, run relevant tests, and avoid unrelated cleanup in a feature or bug-fix change.
 
 ## PDF and test conventions
 - Keep small generated PDFs in tests that specifically verify PDF parsing, shim behavior, or page slicing; those tests need controlled page counts/content and are not real-document sample tests.

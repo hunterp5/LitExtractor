@@ -29,7 +29,7 @@ from .crop_context import DEFAULT_MOLECULE_CROP_MARGIN
 class ExtractOptions:
     figures: bool = True
     text: bool = True
-    corefs: bool = False
+    corefs: bool = True
     reactions: bool = False
     merge_by_inchi: bool = True
     first_page: int = 1

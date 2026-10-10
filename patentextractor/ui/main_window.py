@@ -22,7 +22,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QPoint, QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -33,19 +33,23 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from ..crop_context import DEFAULT_MOLECULE_CROP_MARGIN
@@ -66,7 +70,9 @@ from ..workers.extract_worker import ExtractWorker
 from .dialogs.custom_theme import CustomThemeDialog
 from .dialogs.font_settings import FontSettingsDialog
 from .dialogs.structure_settings import StructureSettingsDialog
-from .molecule_table import MoleculeTableView, pixmap_from_png
+from .extraction_result_tab import ExtractionResultTab
+from .molecule_table import pixmap_from_png
+from .startup_page import StartupPage
 from .theme import (
     THEME_DARK,
     THEME_GROOVY,
@@ -88,6 +94,7 @@ from .theme import (
     save_app_font_pt,
     save_table_font_pt,
     save_theme_name,
+    startup_page_stylesheet,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,6 +117,7 @@ class MainWindow(QMainWindow):
         self.resize(1400, 820)
         self._pdf_path: str | None = None
         self._result: ExtractionResult | None = None
+        self._active_result_tab: ExtractionResultTab | None = None
         self._worker: ExtractWorker | None = None
         self._close_after_worker = False
         self._app_font_pt = load_saved_app_font_pt()
@@ -121,6 +129,9 @@ class MainWindow(QMainWindow):
 
         self._build_menus()
         self._build_central()
+        self._empty_result_tab = ExtractionResultTab(self)
+        self._empty_result_tab.hide()
+        self._set_active_result_tab(None)
         apply_application_theme(QApplication.instance(), self._gui_theme)
         self.status_label = getattr(self, "_extract_status", QLabel("Ready — open a patent PDF to extract structures."))
         self.statusBar().hide()
@@ -209,68 +220,110 @@ class MainWindow(QMainWindow):
             act.setChecked(custom_name is not None and label == custom_name)
 
     def _build_central(self) -> None:
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self._build_extract_panel())
-        splitter.addWidget(self._build_results_tabs())
-        splitter.addWidget(self._build_detail_panel())
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 0)
-        splitter.setSizes([_EXTRACT_PANEL_WIDTH, 760, _DETAIL_PANEL_WIDTH])
-        self.setCentralWidget(splitter)
+        central = QWidget()
+        layout = QHBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        extract_panel = self._build_extract_panel()
+        extract_panel.setFixedWidth(_EXTRACT_PANEL_WIDTH)
+        layout.addWidget(extract_panel)
+
+        results_splitter = QSplitter(Qt.Horizontal)
+        results_splitter.addWidget(self._build_results_tabs())
+        results_splitter.addWidget(self._build_detail_panel())
+        results_splitter.setStretchFactor(0, 1)
+        results_splitter.setStretchFactor(1, 0)
+        results_splitter.setSizes([760, _DETAIL_PANEL_WIDTH])
+        layout.addWidget(results_splitter, 1)
+        self._results_splitter = results_splitter
+        self.setCentralWidget(central)
 
     def _build_extract_panel(self) -> QFrame:
         panel = QFrame()
         panel.setObjectName("ExtractPanel")
-        panel.setMinimumWidth(240)
-        panel.setMaximumWidth(360)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        title = QLabel("Extract")
+        title = QLabel("Options")
         title.setStyleSheet("font-weight: 600;")
         layout.addWidget(title)
 
+        source_group = QGroupBox("PDF")
+        source_layout = QVBoxLayout(source_group)
         self._pdf_label = QLabel("No PDF selected")
         self._pdf_label.setWordWrap(True)
-        layout.addWidget(self._pdf_label)
-
         open_btn = QPushButton("Open PDF…")
         open_btn.clicked.connect(self.open_pdf)
-        layout.addWidget(open_btn)
+        source_layout.addWidget(self._pdf_label)
+        source_layout.addWidget(open_btn)
+        layout.addWidget(source_group)
 
+        content_group = QGroupBox("Extract")
+        content_layout = QVBoxLayout(content_group)
         self._chk_figures = QCheckBox("Molecules from figures")
         self._chk_figures.setChecked(True)
         self._chk_text = QCheckBox("Names from Text")
         self._chk_text.setChecked(True)
         self._chk_corefs = QCheckBox("Figure–label coreferences")
-        self._chk_corefs.setChecked(False)
+        self._chk_corefs.setChecked(True)
         self._chk_reactions = QCheckBox("Reactions")
         self._chk_reactions.setChecked(False)
         self._chk_merge = QCheckBox("Merge duplicates (InChIKey)")
         self._chk_merge.setChecked(True)
-        layout.addWidget(self._chk_figures)
-        layout.addWidget(self._chk_text)
-        layout.addWidget(self._chk_corefs)
-        layout.addWidget(self._chk_reactions)
-        layout.addWidget(self._chk_merge)
+        content_layout.addWidget(self._chk_figures)
+        content_layout.addWidget(self._chk_text)
+        content_layout.addWidget(self._chk_corefs)
+        content_layout.addWidget(self._chk_reactions)
+        content_layout.addWidget(self._chk_merge)
+        layout.addWidget(content_group)
 
-        all_range_row = QHBoxLayout()
-        all_range_row.setContentsMargins(0, 0, 0, 0)
-        all_range_row.setSpacing(12)
+        page_group = QGroupBox("Page range")
+        page_layout = QVBoxLayout(page_group)
         self._all_pages_chk = QCheckBox("All Pages")
         self._all_pages_chk.setChecked(True)
         self._all_pages_chk.setToolTip("Process the full PDF from the first page onward.")
+        page_layout.addWidget(self._all_pages_chk)
+        page_form = QFormLayout()
+        page_form.setSpacing(4)
+        self._first_page_spin = QSpinBox()
+        self._first_page_spin.setRange(1, 9999)
+        self._first_page_spin.setValue(1)
+        self._first_page_spin.setToolTip("1-based page to start on.")
+        page_form.addRow("First page:", self._first_page_spin)
+
+        self._pages_spin = QSpinBox()
+        self._pages_spin.setRange(0, 9999)
+        self._pages_spin.setValue(5)
+        self._pages_spin.setSpecialValueText("All")
+        self._pages_spin.setToolTip(
+            "How many pages to process from First page. 0 = through the end."
+        )
+        page_form.addRow("Page count:", self._pages_spin)
+        page_layout.addLayout(page_form)
+        layout.addWidget(page_group)
+
+        structure_group = QGroupBox("Structure limit")
+        structure_layout = QVBoxLayout(structure_group)
         self._all_structures_chk = QCheckBox("All Structures")
         self._all_structures_chk.setChecked(True)
         self._all_structures_chk.setToolTip("Ignore the structure cap and extract all detected molecules.")
-        all_range_row.addWidget(self._all_pages_chk)
-        all_range_row.addWidget(self._all_structures_chk)
-        layout.addLayout(all_range_row)
+        structure_layout.addWidget(self._all_structures_chk)
+        structure_form = QFormLayout()
+        structure_form.setSpacing(4)
+        self._max_mols_spin = QSpinBox()
+        self._max_mols_spin.setRange(0, 99999)
+        self._max_mols_spin.setValue(50)
+        self._max_mols_spin.setSpecialValueText("All")
+        self._max_mols_spin.setToolTip("Stop after this many structures. 0 = no cap.")
+        structure_form.addRow("Max structures:", self._max_mols_spin)
+        structure_layout.addLayout(structure_form)
+        layout.addWidget(structure_group)
 
-        form = QFormLayout()
-        form.setSpacing(4)
+        processing_group = QGroupBox("Processing")
+        processing_form = QFormLayout(processing_group)
+        processing_form.setSpacing(4)
 
         self._device_combo = QComboBox()
         self._device_combo.setToolTip(
@@ -281,7 +334,7 @@ class MainWindow(QMainWindow):
         if self._cuda_available():
             self._device_combo.addItem("CUDA (GPU)", "cuda")
             self._device_combo.setCurrentIndex(self._device_combo.findData("cuda"))
-        form.addRow("Device:", self._device_combo)
+        processing_form.addRow("Device:", self._device_combo)
 
         self._crop_margin_spin = QDoubleSpinBox()
         self._crop_margin_spin.setRange(0.0, 50.0)
@@ -292,30 +345,8 @@ class MainWindow(QMainWindow):
         self._crop_margin_spin.setToolTip(
             "Expand each detection box by this percentage in every direction before cropping."
         )
-        form.addRow("Crop expansion:", self._crop_margin_spin)
-
-        self._first_page_spin = QSpinBox()
-        self._first_page_spin.setRange(1, 9999)
-        self._first_page_spin.setValue(1)
-        self._first_page_spin.setToolTip("1-based page to start on.")
-        form.addRow("First page:", self._first_page_spin)
-
-        self._pages_spin = QSpinBox()
-        self._pages_spin.setRange(0, 9999)
-        self._pages_spin.setValue(5)
-        self._pages_spin.setSpecialValueText("All")
-        self._pages_spin.setToolTip(
-            "How many pages to process from First page. 0 = through the end."
-        )
-        form.addRow("Page count:", self._pages_spin)
-
-        self._max_mols_spin = QSpinBox()
-        self._max_mols_spin.setRange(0, 99999)
-        self._max_mols_spin.setValue(50)
-        self._max_mols_spin.setSpecialValueText("All")
-        self._max_mols_spin.setToolTip("Stop after this many structures. 0 = no cap.")
-        form.addRow("Max structures:", self._max_mols_spin)
-        layout.addLayout(form)
+        processing_form.addRow("Crop expansion:", self._crop_margin_spin)
+        layout.addWidget(processing_group)
 
         btn_row = QHBoxLayout()
         self._extract_btn = QPushButton("Extract")
@@ -345,22 +376,22 @@ class MainWindow(QMainWindow):
         self._extract_panel = panel
         return panel
 
-    def _build_results_tabs(self) -> QTabWidget:
-        tabs = QTabWidget()
-        self._mol_table = MoleculeTableView()
-        self._mol_table.selectionModel().selectionChanged.connect(self._on_molecule_selected)
-        tabs.addTab(self._mol_table, "Molecules")
+    def _build_results_tabs(self) -> QStackedWidget:
+        self._startup_page = StartupPage()
+        self._startup_page.setStyleSheet(startup_page_stylesheet())
+        self._result_tabs = QTabWidget()
+        self._result_tabs.currentChanged.connect(self._on_result_tab_changed)
+        tab_bar = self._result_tabs.tabBar()
+        tab_bar.setContextMenuPolicy(Qt.CustomContextMenu)
+        tab_bar.customContextMenuRequested.connect(self._show_result_tab_context_menu)
 
-        self._rxn_table = QTableWidget(0, 5)
-        self._rxn_table.setHorizontalHeaderLabels(
-            ["Page", "Reactants", "Products", "Conditions", "Source"]
-        )
-        self._rxn_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._rxn_table.setAlternatingRowColors(True)
-        self._rxn_table.horizontalHeader().setStretchLastSection(True)
-        tabs.addTab(self._rxn_table, "Reactions")
-        self._tabs = tabs
-        return tabs
+        self._results_stack = QStackedWidget()
+        self._results_stack.addWidget(self._startup_page)
+        self._results_stack.addWidget(self._result_tabs)
+        self._results_stack.setCurrentWidget(self._startup_page)
+        # Keep the historic central-results attribute pointing at the stack.
+        self._tabs = self._results_stack
+        return self._results_stack
 
     def _build_detail_panel(self) -> QFrame:
         panel = QFrame()
@@ -368,33 +399,93 @@ class MainWindow(QMainWindow):
         panel.setMinimumWidth(280)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
 
         title = QLabel("Details")
+        title.setObjectName("DetailPanelTitle")
         title.setStyleSheet("font-weight: 600;")
         layout.addWidget(title)
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+
+        structure_card = QFrame()
+        structure_card.setObjectName("DetailCard")
+        structure_layout = QVBoxLayout(structure_card)
+        structure_layout.setContentsMargins(10, 8, 10, 10)
+        structure_layout.setSpacing(6)
+        structure_title = QLabel("Chemical structure")
+        structure_title.setObjectName("DetailCardTitle")
+        structure_layout.addWidget(structure_title)
         self._detail_structure = QLabel()
         self._detail_structure.setAlignment(Qt.AlignCenter)
         self._detail_structure.setMinimumHeight(DETAIL_STRUCTURE_HEIGHT)
         self._detail_structure.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._detail_structure.setText("Select a molecule")
-        layout.addWidget(self._detail_structure)
+        structure_layout.addWidget(self._detail_structure)
+        content_layout.addWidget(structure_card)
 
-        crop_caption = QLabel("Patent crop")
-        layout.addWidget(crop_caption)
+        self._detail_crop_card = QFrame()
+        self._detail_crop_card.setObjectName("DetailCard")
+        crop_layout = QVBoxLayout(self._detail_crop_card)
+        crop_layout.setContentsMargins(10, 8, 10, 10)
+        crop_layout.setSpacing(6)
+        crop_title = QLabel("Patent crop")
+        crop_title.setObjectName("DetailCardTitle")
+        crop_layout.addWidget(crop_title)
         self._detail_crop = QLabel("—")
+        self._detail_crop.setObjectName("CropPreview")
         self._detail_crop.setAlignment(Qt.AlignCenter)
         self._detail_crop.setMinimumHeight(120)
-        layout.addWidget(self._detail_crop)
+        crop_layout.addWidget(self._detail_crop)
+        content_layout.addWidget(self._detail_crop_card)
 
-        self._detail_meta = QLabel("")
-        self._detail_meta.setWordWrap(True)
-        self._detail_meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self._detail_meta)
+        details_card = QFrame()
+        details_card.setObjectName("DetailCard")
+        details_layout = QVBoxLayout(details_card)
+        details_layout.setContentsMargins(10, 8, 10, 10)
+        details_layout.setSpacing(6)
+        details_title = QLabel("Molecule information")
+        details_title.setObjectName("DetailCardTitle")
+        details_layout.addWidget(details_title)
+        fields_layout = QGridLayout()
+        fields_layout.setHorizontalSpacing(12)
+        fields_layout.setVerticalSpacing(5)
+        self._detail_values: dict[str, QLabel] = {}
+        field_names = (
+            "Identifier",
+            "Page",
+            "Source",
+            "Quality",
+            "Formula",
+            "Molecular weight",
+            "InChIKey",
+        )
+        for row, name in enumerate(field_names):
+            field_label = QLabel(name)
+            field_label.setObjectName("DetailFieldName")
+            value = QLabel("—")
+            value.setObjectName("DetailFieldValue")
+            value.setWordWrap(True)
+            value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self._detail_values[name] = value
+            fields_layout.addWidget(field_label, row, 0, Qt.AlignTop)
+            fields_layout.addWidget(value, row, 1)
+        fields_layout.setColumnStretch(1, 1)
+        details_layout.addLayout(fields_layout)
+        content_layout.addWidget(details_card)
+        content_layout.addStretch(1)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
 
         self._detail_panel = panel
         self._clear_detail()
+        panel.hide()
         return panel
 
     def refresh_theme(self) -> None:
@@ -418,9 +509,11 @@ class MainWindow(QMainWindow):
         detail = getattr(self, "_detail_panel", None)
         if detail is not None:
             detail.setStyleSheet(detail_panel_stylesheet())
-        table = getattr(self, "_mol_table", None)
-        if table is not None:
-            table.refresh_theme()
+        for result_tab in self._result_tab_widgets():
+            result_tab.refresh_theme()
+        empty_tab = getattr(self, "_empty_result_tab", None)
+        if empty_tab is not None:
+            empty_tab.refresh_theme()
         if getattr(self, "_table_font_pt", None) is not None:
             self._apply_table_font()
         self.update()
@@ -475,8 +568,11 @@ class MainWindow(QMainWindow):
         self, width: int, height: int, *, persist: bool = True
     ) -> None:
         set_structure_size(width, height, persist=persist)
-        self._mol_table.apply_structure_layout()
-        self._mol_table.molecule_model().rerender_structures()
+        for result_tab in self._result_tab_widgets():
+            result_tab.apply_structure_layout()
+            result_tab.rerender_structures()
+        self._empty_result_tab.apply_structure_layout()
+        self._empty_result_tab.rerender_structures()
         self._refresh_selected_detail()
 
     def open_font_dialog(self) -> None:
@@ -513,10 +609,11 @@ class MainWindow(QMainWindow):
             save_table_font_pt(self._table_font_pt)
 
     def _apply_table_font(self) -> None:
-        self._mol_table.apply_table_font(self._table_font_pt)
-        font = self._rxn_table.font()
-        font.setPointSize(int(self._table_font_pt))
-        self._rxn_table.setFont(font)
+        for result_tab in self._result_tab_widgets():
+            result_tab.apply_table_font(self._table_font_pt)
+        empty_tab = getattr(self, "_empty_result_tab", None)
+        if empty_tab is not None:
+            empty_tab.apply_table_font(self._table_font_pt)
 
     def show_user_guide(self) -> None:
         QMessageBox.information(
@@ -662,21 +759,30 @@ class MainWindow(QMainWindow):
     def _on_extract_progress(self, message: str) -> None:
         self._extract_status.setText(message)
         self.status_label.setText(message)
+        if self._result_tabs.count() == 0:
+            self._startup_page.set_loading(True, message)
+            self._results_stack.setCurrentWidget(self._startup_page)
 
     def _on_extract_finished(self, result: object) -> None:
         if not isinstance(result, ExtractionResult):
             self._on_extract_failed("Unexpected extraction result.")
             return
-        self._result = result
-        self._mol_table.molecule_model().set_molecules(
-            result.molecules, already_prioritized=True
+        result_tab = ExtractionResultTab(self._result_tabs)
+        result_tab.set_result(result)
+        result_tab.apply_table_font(self._table_font_pt)
+        result_tab.apply_structure_layout()
+        result_tab.molecule_table.selectionModel().selectionChanged.connect(
+            self._on_molecule_selected
         )
-        self._mol_table.apply_structure_layout()
-        self._fill_reactions(result)
+        self._result_tabs.addTab(result_tab, Path(result.pdf_path).name)
+        self._result_tabs.setCurrentWidget(result_tab)
+        self._results_stack.setCurrentWidget(self._result_tabs)
+        self._detail_panel.show()
         if result.molecules:
-            self._mol_table.selectRow(0)
+            result_tab.molecule_table.selectRow(0)
         else:
             self._clear_detail()
+        self._startup_page.set_loading(False)
         warn = ""
         if result.warnings:
             warn = " Warnings: " + "; ".join(result.warnings)
@@ -689,29 +795,83 @@ class MainWindow(QMainWindow):
     def _on_extract_failed(self, message: str) -> None:
         self._extract_status.setText(message)
         self.status_label.setText("Extraction failed.")
+        if self._result_tabs.count() == 0:
+            self._startup_page.set_loading(False, message)
+            self._results_stack.setCurrentWidget(self._startup_page)
         QMessageBox.critical(self, APP_NAME, message)
 
     def _on_extract_cancelled(self) -> None:
         self._extract_status.setText("Extraction cancelled.")
         self.status_label.setText("Extraction cancelled.")
+        if self._result_tabs.count() == 0:
+            self._startup_page.set_loading(False)
+            self._results_stack.setCurrentWidget(self._startup_page)
 
-    def _fill_reactions(self, result: ExtractionResult) -> None:
-        table = self._rxn_table
-        table.setRowCount(0)
-        for rxn in result.reactions:
-            row = table.rowCount()
-            table.insertRow(row)
-            values = [
-                "" if rxn.page is None else str(rxn.page),
-                " + ".join(rxn.reactants),
-                " + ".join(rxn.products),
-                rxn.conditions,
-                rxn.source,
-            ]
-            for col, value in enumerate(values):
-                table.setItem(row, col, QTableWidgetItem(value))
-        self._tabs.setTabText(1, f"Reactions ({len(result.reactions)})")
-        self._tabs.setTabText(0, f"Molecules ({len(result.molecules)})")
+    def _result_tab_widgets(self) -> list[ExtractionResultTab]:
+        return [
+            widget
+            for index in range(self._result_tabs.count())
+            if isinstance(widget := self._result_tabs.widget(index), ExtractionResultTab)
+        ]
+
+    def _set_active_result_tab(self, index: int | None) -> None:
+        result_tab = (
+            self._result_tabs.widget(index)
+            if index is not None and 0 <= index < self._result_tabs.count()
+            else None
+        )
+        if not isinstance(result_tab, ExtractionResultTab):
+            result_tab = None
+        self._active_result_tab = result_tab
+        active_tables = result_tab or self._empty_result_tab
+        self._mol_table = active_tables.molecule_table
+        self._rxn_table = active_tables.reaction_table
+        self._result = result_tab.result if result_tab is not None else None
+        if result_tab is None:
+            self._clear_detail()
+            self._detail_panel.hide()
+        else:
+            self._detail_panel.show()
+
+    def _on_result_tab_changed(self, index: int) -> None:
+        self._set_active_result_tab(index)
+        if self._active_result_tab is None:
+            if self._result_tabs.count() == 0:
+                self._results_stack.setCurrentWidget(self._startup_page)
+            return
+        self._refresh_selected_detail()
+
+    def _show_result_tab_context_menu(self, position: QPoint) -> None:
+        index = self._result_tabs.tabBar().tabAt(position)
+        if index < 0:
+            return
+        menu = QMenu(self)
+        close_action = menu.addAction("Close tab")
+        if menu.exec(self._result_tabs.tabBar().mapToGlobal(position)) is close_action:
+            self._confirm_delete_result_tab(index)
+
+    def _confirm_delete_result_tab(self, index: int) -> None:
+        if not 0 <= index < self._result_tabs.count():
+            return
+        name = self._result_tabs.tabText(index)
+        answer = QMessageBox.question(
+            self,
+            APP_NAME,
+            f"Delete '{name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        result_tab = self._result_tabs.widget(index)
+        self._result_tabs.removeTab(index)
+        result_tab.deleteLater()
+        if self._result_tabs.count() == 0:
+            self._set_active_result_tab(None)
+            self._results_stack.setCurrentWidget(self._startup_page)
+
+    def _on_result_tab_selected(self, *_args) -> None:
+        self._refresh_selected_detail()
 
     def _on_molecule_selected(self, *_args) -> None:
         self._refresh_selected_detail()
@@ -746,26 +906,35 @@ class MainWindow(QMainWindow):
                 crop.scaled(320, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
             self._detail_crop.setText("")
+            self._detail_crop_card.show()
         else:
             self._detail_crop.setPixmap(QPixmap())
             self._detail_crop.setText("—")
+            self._detail_crop_card.hide()
         page = "; ".join(str(page_number) for page_number in rec.page_numbers) or "—"
         score = f"{molecule_quality_score(rec):.3f}"
         mw = "—" if rec.molecular_weight is None else f"{rec.molecular_weight:.3f}"
         source = "; ".join(rec.sources) if rec.sources else rec.source
-        self._detail_meta.setText(
-            f"Identifier: {rec.identifier or '—'}\n"
-            f"Page: {page}    Source: {source}    Quality: {score}\n"
-            f"Formula: {rec.formula or '—'}    MW: {mw}\n"
-            f"InChIKey: {rec.inchi_key or '—'}"
-        )
+        values = {
+            "Identifier": rec.identifier or "—",
+            "Page": page,
+            "Source": source or "—",
+            "Quality": score,
+            "Formula": rec.formula or "—",
+            "Molecular weight": mw,
+            "InChIKey": rec.inchi_key or "—",
+        }
+        for name, value in values.items():
+            self._detail_values[name].setText(value)
 
     def _clear_detail(self) -> None:
         self._detail_structure.setPixmap(QPixmap())
         self._detail_structure.setText("Select a molecule")
         self._detail_crop.setPixmap(QPixmap())
         self._detail_crop.setText("—")
-        self._detail_meta.setText("")
+        self._detail_crop_card.hide()
+        for value in self._detail_values.values():
+            value.setText("—")
 
     def _require_molecules(self) -> list[ExtractedMolecule] | None:
         mols = self._mol_table.molecule_model().molecules()

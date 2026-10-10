@@ -5,11 +5,12 @@ PatentExtractor is a desktop application for finding chemical structures and rel
 ## Features
 
 - Extract structures from document figures and chemical entities from text.
-- Optionally process figure–label coreferences and reactions.
+- Process figure–label coreferences by default to associate structure figures with labels; reactions are optional.
 - Review structures, SMILES, identifiers, source pages, formulas, molecular weights, and InChIKeys.
 - Merge duplicate molecules by InChIKey.
 - Export molecule data to CSV, SDF, or SMILES.
 - Choose CPU or CUDA for model inference and customize the application theme and structure display.
+- A simple centered workspace message shows when to open a PDF and reports initial extraction progress.
 
 OpenChemIE models are large and can be slow on CPU. Model weights may be downloaded the first time extraction runs. The GUI can still start when optional extraction dependencies are unavailable; it reports missing runtime components when extraction is requested.
 
@@ -72,8 +73,8 @@ After an editable installation, the `patentextractor` console command is also av
 1. Open a PDF using **File → Open PDF** or the Open PDF control.
 2. Select the sources to process: figures, text, coreferences, or reactions.
 3. Optionally set a page range, a molecule limit, a device, and the crop expansion.
-4. Start extraction and review the results in the Molecules and Reactions tabs.
-5. Export molecule results through **File → Export**.
+4. Start extraction and review the results in the Molecules and Reactions tabs. Each extraction is kept in its own result tab; right-click a result tab and confirm to delete it.
+5. Export molecule results through **File → Export**. Exports use the currently active result tab.
 
 Molecule crop expansion is **0% by default**: the detected molecule box is not enlarged before cropping. Users can choose a larger margin in the Extract panel. A separate fixed 8% context margin is applied earlier to parent figure regions for layout detection; it is not controlled by the molecule crop setting. Both crop stages use source-image pixels and clip at image boundaries.
 

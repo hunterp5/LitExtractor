@@ -18,7 +18,9 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPalette
+from PySide6.QtWidgets import QFrame, QGroupBox, QLabel, QMessageBox, QScrollArea, QSplitter
 
 from patentextractor.extraction import ExtractedMolecule, ExtractionResult, enrich_molecule
 from patentextractor.ui.main_window import APP_NAME, MainWindow
@@ -34,6 +36,177 @@ def test_main_window_loads_molecules(qapp):  # noqa: ARG001
     assert w._mol_table.molecule_model().rowCount() == 1
     assert w.windowTitle() == APP_NAME
     w.close()
+
+
+def test_startup_welcome_transitions_through_loading_to_results(qapp):
+    window = MainWindow()
+    window.show()
+    qapp.processEvents()
+
+    assert window._result_tabs.count() == 0
+    assert window._results_stack.currentWidget() is window._startup_page
+    assert window._startup_page.isVisible()
+    assert window._result_tabs.isHidden()
+    assert not window._startup_page.is_loading
+    assert window._detail_panel.isHidden()
+    assert "Open a patent PDF" in window._startup_page.message_label.text()
+    assert window._startup_page.message_label.alignment() == Qt.AlignCenter
+    assert window._startup_page.findChildren(QLabel) == [window._startup_page.message_label]
+
+    window._on_extract_progress("Loading OpenChemIE models…")
+    assert window._startup_page.is_loading
+    assert window._startup_page.message_label.text() == "Loading OpenChemIE models…"
+
+    molecule = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="EtOH"))
+    window._on_extract_finished(
+        ExtractionResult(pdf_path="demo.pdf", molecules=[molecule], reactions=[])
+    )
+    assert not window._startup_page.is_loading
+    assert window._results_stack.currentWidget() is window._result_tabs
+    assert not window._detail_panel.isHidden()
+    window.close()
+
+
+def test_detail_pane_hides_missing_crop_and_aligns_metadata(qapp):
+    window = MainWindow()
+    assert window._detail_panel.findChild(QScrollArea) is not None
+    cards = window._detail_panel.findChildren(QFrame, "DetailCard")
+    assert len(cards) == 3
+    card_titles = {
+        label.text()
+        for label in window._detail_panel.findChildren(QLabel, "DetailCardTitle")
+    }
+    assert card_titles == {"Chemical structure", "Patent crop", "Molecule information"}
+    molecule = enrich_molecule(
+        ExtractedMolecule(smiles="CCO", identifier="EtOH", page=2, source="text")
+    )
+
+    window._on_extract_finished(
+        ExtractionResult(pdf_path="demo.pdf", molecules=[molecule], reactions=[])
+    )
+
+    assert window._detail_crop_card.isHidden()
+    assert window._detail_values["Identifier"].text() == "EtOH"
+    assert window._detail_values["Page"].text() == "2"
+    assert window._detail_values["Source"].text() == "text"
+    assert window._detail_values["Formula"].text() == "C2H6O"
+    window.close()
+
+
+def test_extractions_create_separate_tabs_and_export_uses_active_table(
+    qapp, monkeypatch, tmp_path
+):
+    import patentextractor.ui.main_window as main_window
+
+    window = MainWindow()
+    table_font_pt = 13
+    window._set_table_font_pt(table_font_pt, persist=False)
+    first_molecule = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="first"))
+    second_molecule = enrich_molecule(
+        ExtractedMolecule(smiles="CC(=O)C", identifier="second")
+    )
+    first_result = ExtractionResult(
+        pdf_path="first.pdf", molecules=[first_molecule], reactions=[]
+    )
+    second_result = ExtractionResult(
+        pdf_path="second.pdf", molecules=[second_molecule], reactions=[]
+    )
+    exported: list[ExtractedMolecule] = []
+    monkeypatch.setattr(
+        main_window.QFileDialog,
+        "getSaveFileName",
+        lambda *_args, **_kwargs: (str(tmp_path / "active.csv"), ""),
+    )
+    monkeypatch.setattr(
+        main_window,
+        "write_csv",
+        lambda _path, molecules: exported.extend(molecules),
+    )
+
+    window._on_extract_finished(first_result)
+    first_tab = window._active_result_tab
+    window._on_extract_finished(second_result)
+
+    assert window._result_tabs.count() == 2
+    assert window._result_tabs.tabText(0) == "first.pdf"
+    assert window._result_tabs.tabText(1) == "second.pdf"
+    assert first_tab is not window._active_result_tab
+    assert window._active_result_tab.result is second_result
+    assert [
+        window._result_tabs.widget(index).molecule_table.font().pointSize()
+        for index in range(window._result_tabs.count())
+    ] == [table_font_pt, table_font_pt]
+    assert [
+        window._result_tabs.widget(index).reaction_table.font().pointSize()
+        for index in range(window._result_tabs.count())
+    ] == [table_font_pt, table_font_pt]
+
+    window._result_tabs.setCurrentIndex(0)
+    assert window._result is first_result
+    window.export_csv()
+    assert exported == [first_molecule]
+    window.close()
+
+
+def test_result_tab_deletion_requires_confirmation(qapp, monkeypatch):
+    window = MainWindow()
+    window._on_extract_finished(
+        ExtractionResult(pdf_path="first.pdf", molecules=[], reactions=[])
+    )
+    window._on_extract_finished(
+        ExtractionResult(pdf_path="second.pdf", molecules=[], reactions=[])
+    )
+    prompts: list[tuple[str, str]] = []
+
+    def decline(_parent, title, message, *_args):
+        prompts.append((title, message))
+        return QMessageBox.No
+
+    monkeypatch.setattr(QMessageBox, "question", decline)
+    window._confirm_delete_result_tab(0)
+    assert window._result_tabs.count() == 2
+    assert prompts and "Delete 'first.pdf'" in prompts[0][1]
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.Yes)
+    window._confirm_delete_result_tab(0)
+    assert window._result_tabs.count() == 1
+    assert window._result_tabs.tabText(0) == "second.pdf"
+    assert window._active_result_tab.result.pdf_path == "second.pdf"
+    window.close()
+
+
+def test_result_tab_context_menu_targets_right_clicked_tab(qapp, monkeypatch):
+    import patentextractor.ui.main_window as main_window
+
+    window = MainWindow()
+    window._on_extract_finished(
+        ExtractionResult(pdf_path="first.pdf", molecules=[], reactions=[])
+    )
+    window._on_extract_finished(
+        ExtractionResult(pdf_path="second.pdf", molecules=[], reactions=[])
+    )
+    window.show()
+    qapp.processEvents()
+    requested_deletions: list[int] = []
+
+    class FakeMenu:
+        def __init__(self, _parent):
+            self.action = object()
+
+        def addAction(self, _label):
+            return self.action
+
+        def exec(self, _position):
+            return self.action
+
+    monkeypatch.setattr(main_window, "QMenu", FakeMenu)
+    monkeypatch.setattr(window, "_confirm_delete_result_tab", requested_deletions.append)
+    click_position = window._result_tabs.tabBar().tabRect(1).center()
+
+    window._show_result_tab_context_menu(QPoint(click_position))
+
+    assert requested_deletions == [1]
+    window.close()
 
 
 def test_main_window_does_not_rank_results_twice(qapp, monkeypatch):
@@ -60,18 +233,37 @@ def test_main_window_theme_switch(qapp):
     w.close()
 
 
+def test_options_panel_is_grouped_and_not_resizable_against_results(qapp):  # noqa: ARG001
+    window = MainWindow()
+    central_layout = window.centralWidget().layout()
+    assert central_layout.count() == 2
+    assert central_layout.itemAt(0).widget() is window._extract_panel
+    assert window._extract_panel.minimumWidth() == window._extract_panel.maximumWidth()
+
+    results_splitter = central_layout.itemAt(1).widget()
+    assert isinstance(results_splitter, QSplitter)
+    assert results_splitter.count() == 2
+    assert results_splitter.widget(0) is window._tabs
+    assert results_splitter.widget(1) is window._detail_panel
+    assert window._extract_panel not in results_splitter.findChildren(QSplitter)
+
+    group_titles = {group.title() for group in window._extract_panel.findChildren(QGroupBox)}
+    assert group_titles == {"PDF", "Extract", "Page range", "Structure limit", "Processing"}
+    window.close()
+
+
 def test_manual_checkbox_defaults_are_used(qapp):  # noqa: ARG001
     w = MainWindow()
     assert w._all_pages_chk.isChecked() is True
     assert w._all_structures_chk.isChecked() is True
     assert w._first_page_spin.isEnabled() is False
     assert w._pages_spin.isEnabled() is False
-    assert w._max_mols_spin.isEnabled() is False
     assert w._crop_margin_spin.value() == 0.0
     opts = w._current_options()
     assert opts.figures is True
     assert opts.text is True
-    assert opts.corefs is False
+    assert w._chk_corefs.isChecked() is True
+    assert opts.corefs is True
     assert opts.reactions is False
     assert opts.first_page == 1
     assert opts.num_pages is None
