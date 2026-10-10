@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QFrame, QGroupBox, QLabel, QMessageBox, QScrollArea, QSplitter
+from PySide6.QtWidgets import QFrame, QGroupBox, QLabel, QMessageBox, QScrollArea
 
 from patentextractor.extraction import ExtractedMolecule, ExtractionResult, enrich_molecule
 from patentextractor.ui.main_window import APP_NAME, MainWindow
@@ -70,6 +70,7 @@ def test_startup_welcome_transitions_through_loading_to_results(qapp):
 def test_detail_pane_hides_missing_crop_and_aligns_metadata(qapp):
     window = MainWindow()
     assert window._detail_panel.findChild(QScrollArea) is not None
+    assert window._detail_panel.findChild(QLabel, "DetailPanelTitle") is None
     cards = window._detail_panel.findChildren(QFrame, "DetailCard")
     assert len(cards) == 3
     card_titles = {
@@ -233,19 +234,16 @@ def test_main_window_theme_switch(qapp):
     w.close()
 
 
-def test_options_panel_is_grouped_and_not_resizable_against_results(qapp):  # noqa: ARG001
+def test_side_panels_have_fixed_widths_and_options_are_grouped(qapp):  # noqa: ARG001
     window = MainWindow()
     central_layout = window.centralWidget().layout()
-    assert central_layout.count() == 2
+    assert central_layout.count() == 3
     assert central_layout.itemAt(0).widget() is window._extract_panel
+    assert central_layout.itemAt(1).widget() is window._tabs
+    assert central_layout.itemAt(2).widget() is window._detail_panel
     assert window._extract_panel.minimumWidth() == window._extract_panel.maximumWidth()
-
-    results_splitter = central_layout.itemAt(1).widget()
-    assert isinstance(results_splitter, QSplitter)
-    assert results_splitter.count() == 2
-    assert results_splitter.widget(0) is window._tabs
-    assert results_splitter.widget(1) is window._detail_panel
-    assert window._extract_panel not in results_splitter.findChildren(QSplitter)
+    assert window._detail_panel.minimumWidth() == 420
+    assert window._detail_panel.maximumWidth() == 420
 
     group_titles = {group.title() for group in window._extract_panel.findChildren(QGroupBox)}
     assert group_titles == {"PDF", "Extract", "Page range", "Structure limit", "Processing"}

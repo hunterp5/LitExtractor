@@ -23,7 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QSettings, Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QFont, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -45,7 +45,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QSplitter,
     QStackedWidget,
     QTabWidget,
     QVBoxLayout,
@@ -100,7 +99,7 @@ _SETTINGS_APP = "PatentExtractor"
 _SETTINGS_KEY_LAST_DIR = "files/last_dir"
 
 _EXTRACT_PANEL_WIDTH = 280
-_DETAIL_PANEL_WIDTH = 340
+_DETAIL_PANEL_WIDTH = 420
 
 
 class MainWindow(QMainWindow):
@@ -201,14 +200,10 @@ class MainWindow(QMainWindow):
         extract_panel.setFixedWidth(_EXTRACT_PANEL_WIDTH)
         layout.addWidget(extract_panel)
 
-        results_splitter = QSplitter(Qt.Horizontal)
-        results_splitter.addWidget(self._build_results_tabs())
-        results_splitter.addWidget(self._build_detail_panel())
-        results_splitter.setStretchFactor(0, 1)
-        results_splitter.setStretchFactor(1, 0)
-        results_splitter.setSizes([760, _DETAIL_PANEL_WIDTH])
-        layout.addWidget(results_splitter, 1)
-        self._results_splitter = results_splitter
+        layout.addWidget(self._build_results_tabs(), 1)
+        detail_panel = self._build_detail_panel()
+        detail_panel.setFixedWidth(_DETAIL_PANEL_WIDTH)
+        layout.addWidget(detail_panel)
         self.setCentralWidget(central)
 
     def _build_extract_panel(self) -> QFrame:
@@ -367,13 +362,6 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
-
-        title = QLabel("Details")
-        title.setObjectName("DetailPanelTitle")
-        title_font = QFont(title.font())
-        title_font.setWeight(QFont.DemiBold)
-        title.setFont(title_font)
-        layout.addWidget(title)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

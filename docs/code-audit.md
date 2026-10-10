@@ -60,9 +60,6 @@ The following remediation is currently in the worktree and has not yet been comm
 - Added construction-time extraction-option validation and retained all merged molecule pages/sources through ranking, display, and export while preserving the legacy earliest `page` field.
 - Enabled figure–label coreferences by default and kept each successful extraction in a separate result tab with confirmed deletion and active-tab-only exports.
 - Extracted LayoutParser weight metadata, URL conversion, HTML detection, robust downloads, and iopath cache patching into `http_weights.py`; `openchemie_compat.py` re-exports the prior helper names and remains the setup entry point. Added a regression test for those compatibility aliases.
-- Retained Windows `os.add_dll_directory()` handles for process lifetime and replaced silent setup failure with per-directory warnings and continued registration.
-- Moved drawing dimensions and runtime size state to pure-Python `structure_dimensions.py`; `structure_draw.py` no longer imports Qt or reads `QSettings` during import.
-- Replaced duplicate runtime helper implementations in `extraction.py` with explicit `extraction_runtime.py` re-exports, restoring identity compatibility and updating the CUDA fallback test to patch its owner module.
 
 This remediation is tracked as a separate audit-fix set from the earlier runtime-cache change.
 
@@ -70,7 +67,7 @@ The prior, pre-audit work was committed as `4d7483b` (`Cache and serialize OpenC
 
 ## Validation history
 
-- Latest full validation after the HTTP-weight, bootstrap DLL-lifetime, extraction runtime re-export, and pure structure-dimensions changes: default suite **100 passed, 1 skipped**; `ruff check patentextractor tests` passed.
+- Last completed validation before the current HTTP-weight split: default suite **80 passed, 1 skipped**; `ruff check patentextractor tests` passed. Re-validation after the current split is pending.
 - VS Code's file diagnostics reported no errors in the modified Python files.
 - Six third-party deprecation/future warnings were emitted by installed dependencies during tests.
 - The first broad audit test run happened before QSettings isolation was added and cleared the saved theme key. Future suite runs use a temporary settings directory; restore the desired theme in the app if the previous preference was not Light/default.
@@ -78,6 +75,6 @@ The prior, pre-audit work was committed as `4d7483b` (`Cache and serialize OpenC
 
 ## Follow-up sequence
 
-1. Continue assessing `openchemie_compat.py` and `MainWindow` decomposition in small steps, retaining compatibility entry points and regression tests.
-2. Investigate dependency constraints before consolidating the OpenCV distributions; the current upstream metadata requests both variants.
-3. Assess Ruff's line-length policy and remaining diagnostics, then re-run default tests and Ruff after each coherent change. Run integration tests only when local models and required system tools are available.
+1. Validate the HTTP-weight split, then continue assessing `openchemie_compat.py` and UI decomposition in small steps, retaining compatibility entry points and regression tests.
+2. Separate Qt settings from pure drawing/layout behavior; clean up dependency and type/lint policy.
+3. Re-run default tests and Ruff after each coherent change; run integration tests only when local models and required system tools are available.

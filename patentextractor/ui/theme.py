@@ -305,7 +305,7 @@ def detail_panel_stylesheet() -> str:
         color: palette(windowtext);
     }
     QLabel#CropPreview {
-        background-color: palette(alternate-base);
+        background-color: #ffffff;
         border-radius: 6px;
     }
     """

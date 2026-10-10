@@ -29,6 +29,7 @@ from patentextractor.ui.theme import (
     THEME_NAMES,
     apply_application_theme,
     current_theme_name,
+    detail_panel_stylesheet,
     initialize_application_theme,
     load_saved_theme_name,
     palette_for_theme,
@@ -40,6 +41,12 @@ def test_light_and_dark_palettes_differ(qapp):  # noqa: ARG001
     light = palette_for_theme(THEME_LIGHT)
     dark = palette_for_theme(THEME_DARK)
     assert light.color(QPalette.Window) != dark.color(QPalette.Window)
+
+
+def test_detail_crop_preview_has_white_background():
+    stylesheet = detail_panel_stylesheet()
+    assert "QLabel#CropPreview" in stylesheet
+    assert "background-color: #ffffff;" in stylesheet
 
 
 def test_light_palette_is_explicitly_light_and_requirements_include_easyocr():
