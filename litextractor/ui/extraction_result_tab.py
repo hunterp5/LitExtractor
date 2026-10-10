@@ -28,6 +28,7 @@ class ExtractionResultTab(QWidget):
     """Own the tables and extraction result shown in one top-level result tab."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        """Create the Molecules and Reactions sub-tabs; no result is loaded yet."""
         super().__init__(parent)
         self.result: ExtractionResult | None = None
 

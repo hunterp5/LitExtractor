@@ -27,10 +27,10 @@ from litextractor.extraction import extract_from_pdf, merge_molecules_by_inchi
 from litextractor.extraction_errors import ExtractionCancelled
 from litextractor.extraction_pdf import slice_pdf_pages
 from litextractor.extraction_results import (
-    _unpack_label,
     molecules_from_figure_results,
     molecules_from_text_results,
     reactions_from_pdf_results,
+    unpack_label,
 )
 from litextractor.extraction_runtime import resolve_torch_device
 from litextractor.models import ExtractedMolecule, ExtractOptions
@@ -346,8 +346,8 @@ def test_prioritize_molecules_parses_validity_once_per_record(monkeypatch):
 
 
 def test_malformed_empty_label_tuples_are_ignored():
-    assert _unpack_label(([], [], []), "The compound CCO was used.") == ("", 0, 0)
-    assert _unpack_label([], "The compound CCO was used.") == ("", 0, 0)
+    assert unpack_label(([], [], []), "The compound CCO was used.") == ("", 0, 0)
+    assert unpack_label([], "The compound CCO was used.") == ("", 0, 0)
 
 
 def test_merge_by_inchi_combines_sources():
@@ -691,12 +691,12 @@ def test_reactions_from_pdf_results_skips_malformed_entries(caplog):
 
 
 def test_coreference_parser_skips_negative_and_non_integer_indices(caplog):
-    from litextractor.extraction_coreference import apply_coref_identifiers as _apply_coref_identifiers
+    from litextractor.extraction_coreference import apply_coref_identifiers
 
     molecule = ExtractedMolecule(
         smiles="CCO", source="figure", page=1, bbox=(0.1, 0.1, 0.5, 0.5)
     )
-    _apply_coref_identifiers(
+    apply_coref_identifiers(
         [molecule],
         [
             {

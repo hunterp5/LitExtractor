@@ -67,6 +67,14 @@ from .ui.theme import apply_light_theme
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Configure logging and the Qt application, show the main window, and run the event loop.
+
+    Args:
+        argv: Command-line arguments for ``QApplication``; defaults to ``sys.argv``.
+
+    Returns:
+        The Qt event loop's exit code.
+    """
     if argv is None:
         argv = sys.argv
 

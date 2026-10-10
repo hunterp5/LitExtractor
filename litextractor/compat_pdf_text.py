@@ -48,14 +48,17 @@ def install_pdftotext_shim() -> None:
     from PyPDF2 import PdfReader
 
     class PDF(list):
+        """Stand-in for ``pdftotext.PDF``: a list holding one text string per page."""
+
         def __init__(self, handle) -> None:
+            """Read every page of the open binary PDF *handle* with PyPDF2 into this list."""
             reader = PdfReader(handle)
             self.extend((page.extract_text() or "") for page in reader.pages)
 
-    mod = types.ModuleType("pdftotext")
-    mod.PDF = PDF
-    mod.Error = RuntimeError
-    sys.modules["pdftotext"] = mod
+    shim_module = types.ModuleType("pdftotext")
+    shim_module.PDF = PDF
+    shim_module.Error = RuntimeError
+    sys.modules["pdftotext"] = shim_module
 
 
 def ensure_chemrxnextractor_importable() -> None:
@@ -79,7 +82,10 @@ def ensure_chemrxnextractor_importable() -> None:
                 del sys.modules[name]
 
     class RxnExtractor:
+        """Placeholder ``RxnExtractor`` that fails loudly if text-reaction extraction is used."""
+
         def __init__(self, *args, **kwargs) -> None:
+            """Always raise, explaining that chemrxnextractor could not be imported."""
             raise RuntimeError(
                 "chemrxnextractor failed to import in this environment, so "
                 "reactions-from-text is unavailable. Figure extraction still works."
@@ -91,39 +97,43 @@ def ensure_chemrxnextractor_importable() -> None:
 
 
 def paragraphs_from_page_text(content: str) -> list[list[str]]:
-    """Split a page of PDF text into sentence lists (OpenChemIE ChemRxnExtractor logic)."""
+    """Split a page of PDF text into sentence lists (OpenChemIE ChemRxnExtractor logic).
+
+    Text is split into blocks on blank lines (blocks containing a form feed are dropped);
+    each block becomes a list of sentences, each ending with a newline.
+    """
     blocks: list[list[str]] = []
-    for line in content.split("\n\n"):
+    for raw_block in content.split("\n\n"):
         paragraph: list[str] = []
-        if "\x0c" in line:
+        if "\x0c" in raw_block:
             continue
-        text = line.replace("\n", " ").replace("- ", "-")
-        curind = 0
-        i = 0
-        while i < len(text):
-            if text[i] == ".":
+        text = raw_block.replace("\n", " ").replace("- ", "-")
+        sentence_start = 0
+        position = 0
+        while position < len(text):
+            if text[position] == ".":
                 if (
-                    i != 0
-                    and not text[i - 1].isdigit()
-                    or i != len(text) - 1
-                    and (text[i + 1] == " " or text[i + 1] == "\n")
+                    position != 0
+                    and not text[position - 1].isdigit()
+                    or position != len(text) - 1
+                    and (text[position + 1] == " " or text[position + 1] == "\n")
                 ):
-                    paragraph.append(text[curind : i + 1] + "\n")
-                    while i < len(text) and text[i] != " ":
-                        i += 1
-                    curind = i + 1
-            i += 1
-        if curind != i:
-            if text[i - 1] == " ":
-                if i != 1:
-                    i -= 1
+                    paragraph.append(text[sentence_start : position + 1] + "\n")
+                    while position < len(text) and text[position] != " ":
+                        position += 1
+                    sentence_start = position + 1
+            position += 1
+        if sentence_start != position:
+            if text[position - 1] == " ":
+                if position != 1:
+                    position -= 1
                 else:
                     blocks.append(paragraph)
                     continue
-            if text[i - 1] != ".":
-                paragraph.append(text[curind:i] + ".\n")
+            if text[position - 1] != ".":
+                paragraph.append(text[sentence_start:position] + ".\n")
             else:
-                paragraph.append(text[curind:i] + "\n")
+                paragraph.append(text[sentence_start:position] + "\n")
         blocks.append(paragraph)
     return blocks
 
@@ -137,11 +147,13 @@ class PdfParagraphSource:
     """
 
     def __init__(self) -> None:
+        """Start with no PDF loaded and no page limit."""
         self.pdf_file = ""
         self.pages: int | None = None
         self.pdf_text: list[str] = []
 
     def set_pdf_file(self, pdf: str) -> None:
+        """Load the per-page text of the PDF at path *pdf* via ``pdftotext``."""
         import pdftotext
 
         self.pdf_file = pdf
@@ -149,20 +161,22 @@ class PdfParagraphSource:
             self.pdf_text = list(pdftotext.PDF(handle))
 
     def set_pages(self, pages: int | None) -> None:
+        """Set how many pages to read; ``None`` means every loaded page."""
         self.pages = pages
 
     def get_paragraphs_from_pdf(self, pages: int | None = None) -> list[dict]:
+        """Return ``{"paragraphs", "page"}`` dicts (1-based page) for the first *pages* pages."""
         if pages is None:
             pages = self.pages
         if pages is None:
             pages = len(self.pdf_text)
         result = []
-        for index in range(int(pages)):
-            content = self.pdf_text[index] if index < len(self.pdf_text) else ""
+        for page_index in range(int(pages)):
+            content = self.pdf_text[page_index] if page_index < len(self.pdf_text) else ""
             result.append(
                 {
                     "paragraphs": paragraphs_from_page_text(content),
-                    "page": index + 1,
+                    "page": page_index + 1,
                 }
             )
         return result

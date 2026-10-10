@@ -24,6 +24,7 @@ from PySide6.QtWidgets import QWidget
 
 
 def pixmap_from_png(png: bytes) -> QPixmap:
+    """Decode PNG bytes into a ``QPixmap``; return a null pixmap when *png* is empty."""
     pixmap = QPixmap()
     if png:
         pixmap.loadFromData(png)

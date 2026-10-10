@@ -55,6 +55,20 @@ class ExtractionController:
         startup_page: StartupPage,
         results_stack: QStackedWidget,
     ) -> None:
+        """Store the widgets whose enabled/visible state and text this controller manages.
+
+        Args:
+            parent: Window that owns worker threads and dialogs, and is closed after a
+                deferred close.
+            app_name: Title for error dialogs.
+            extract_button: Start button, disabled while busy.
+            cancel_button: Cancel button, enabled only while busy.
+            progress_bar: Busy indicator shown while a worker runs.
+            status_label: Receives progress and outcome messages.
+            result_tabs: Existing result tabs; used to decide whether to show the startup page.
+            startup_page: Idle/progress page.
+            results_stack: Stack that switches between the startup page and result tabs.
+        """
         self._parent = parent
         self._app_name = app_name
         self._extract_button = extract_button

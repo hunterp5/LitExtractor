@@ -24,41 +24,41 @@ from rdkit.Chem.Draw import rdMolDraw2D
 from .structure_dimensions import STRUCTURE_BOND_LINE_WIDTH, STRUCTURE_WIDTH
 
 
-def configure_mol_drawer(drawer: rdMolDraw2D.MolDraw2D, target_w: int) -> None:
+def configure_mol_drawer(drawer: rdMolDraw2D.MolDraw2D, target_width: int) -> None:
     """Thinner bonds at table resolution; scale stroke with larger depictions."""
-    opts = drawer.drawOptions()
-    base_w = float(STRUCTURE_WIDTH)
-    ratio = max(1.0, float(target_w) / base_w)
-    opts.bondLineWidth = float(STRUCTURE_BOND_LINE_WIDTH) * ratio
+    draw_options = drawer.drawOptions()
+    base_width = float(STRUCTURE_WIDTH)
+    scale_ratio = max(1.0, float(target_width) / base_width)
+    draw_options.bondLineWidth = float(STRUCTURE_BOND_LINE_WIDTH) * scale_ratio
 
 
-def mol_ready_for_drawing(mol: Chem.Mol | None) -> Chem.Mol | None:
+def mol_ready_for_drawing(rdkit_mol: Chem.Mol | None) -> Chem.Mol | None:
     """Return a sanitized copy that RDKit can depict, or None."""
-    if mol is None:
+    if rdkit_mol is None:
         return None
     try:
-        copy = Chem.Mol(mol)
-        Chem.SanitizeMol(copy)
-        return copy
+        mol_copy = Chem.Mol(rdkit_mol)
+        Chem.SanitizeMol(mol_copy)
+        return mol_copy
     except Exception:
         pass
     try:
-        copy = Chem.Mol(mol)
-        copy.UpdatePropertyCache(strict=False)
-        Chem.GetSSSR(copy)
-        return copy
+        mol_copy = Chem.Mol(rdkit_mol)
+        mol_copy.UpdatePropertyCache(strict=False)
+        Chem.GetSSSR(mol_copy)
+        return mol_copy
     except Exception:
         return None
 
 
-def render_molecule_png(mol: Chem.Mol, target_w: int, target_h: int) -> bytes:
-    """Draw *mol* to PNG bytes at the requested size. Empty bytes if drawing fails."""
-    ready = mol_ready_for_drawing(mol)
+def render_molecule_png(rdkit_mol: Chem.Mol, target_width: int, target_height: int) -> bytes:
+    """Draw *rdkit_mol* to PNG bytes at the requested size. Empty bytes if drawing fails."""
+    ready = mol_ready_for_drawing(rdkit_mol)
     if ready is None:
         return b""
     try:
-        drawer = rdMolDraw2D.MolDraw2DCairo(int(target_w), int(target_h))
-        configure_mol_drawer(drawer, int(target_w))
+        drawer = rdMolDraw2D.MolDraw2DCairo(int(target_width), int(target_height))
+        configure_mol_drawer(drawer, int(target_width))
         rdMolDraw2D.PrepareAndDrawMolecule(drawer, ready)
         drawer.FinishDrawing()
         return drawer.GetDrawingText()

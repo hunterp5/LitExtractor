@@ -26,6 +26,7 @@ class StartupPage(QFrame):
     """Centered status message shown before results are available."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        """Build the centered, word-wrapped message label shown in the idle state."""
         super().__init__(parent)
         self.setObjectName("WelcomePage")
         self.setAutoFillBackground(True)

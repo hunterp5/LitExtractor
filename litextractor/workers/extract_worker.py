@@ -37,11 +37,17 @@ class ExtractWorker(QThread):
     cancelled = Signal()
 
     def __init__(self, pdf_path: str, options: ExtractOptions, parent=None) -> None:
+        """Remember the PDF and extraction options; the work starts when the thread runs."""
         super().__init__(parent)
         self._pdf_path = pdf_path
         self._options = options
 
     def run(self) -> None:
+        """Extract on the worker thread, then emit exactly one of the outcome signals.
+
+        Emits ``finished_ok`` with the result, ``cancelled`` if interruption was requested,
+        or ``failed`` with the error message for any other exception.
+        """
         try:
             from ..extraction import extract_from_pdf
 

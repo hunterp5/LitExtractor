@@ -30,6 +30,7 @@ class CitationsDialog(QDialog):
     """Show bibliographic citations and project credits for the main technology stack."""
 
     def __init__(self, parent=None) -> None:
+        """Build a read-only, link-enabled citation browser with a Close button."""
         super().__init__(parent)
         self.setWindowTitle("Citations")
         self.resize(780, 700)
@@ -50,6 +51,7 @@ class CitationsDialog(QDialog):
 
     @staticmethod
     def _citation_html() -> str:
+        """Return the citation guide as an HTML document, including the app version."""
         version = escape(__version__)
         return f"""<!doctype html>
 <html>

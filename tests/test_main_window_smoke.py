@@ -194,9 +194,11 @@ def test_main_window_does_not_rank_results_twice(qapp, monkeypatch):
 
     monkeypatch.setattr(molecule_table, "prioritize_molecules", unexpected_ranking)
     w = MainWindow()
-    rec = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="EtOH", page=1))
-    w._on_extract_finished(ExtractionResult(pdf_path="demo.pdf", molecules=[rec], reactions=[]))
-    assert w._mol_table.molecule_model().rowCount() == 1
+    molecule = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="EtOH", page=1))
+    w._on_extract_finished(
+        ExtractionResult(pdf_path="demo.pdf", molecules=[molecule], reactions=[])
+    )
+    assert w._active_molecule_table.molecule_model().rowCount() == 1
     w.close()
 
 
@@ -217,14 +219,14 @@ def test_cuda_probe_runs_in_background_and_updates_device_selector(
 
     monkeypatch.setattr(cuda_probe_worker, "cuda_available", delayed_cuda_probe)
     window = MainWindow()
-    assert window._device_combo.count() == 1
-    assert window._device_combo.currentData() == "cpu"
+    assert window._device_combobox.count() == 1
+    assert window._device_combobox.currentData() == "cpu"
     assert not probe_started.is_set()
 
     window.show()
     window.start_cuda_probe()
     assert probe_started.wait(5)
-    assert window._device_combo.count() == 1
+    assert window._device_combobox.count() == 1
 
     worker = window._cuda_worker
     assert worker is not None
@@ -232,44 +234,44 @@ def test_cuda_probe_runs_in_background_and_updates_device_selector(
     assert worker.wait(5000)
     qapp.processEvents()
 
-    assert window._device_combo.findData("cuda") >= 0
-    assert window._device_combo.currentData() == "cuda"
+    assert window._device_combobox.findData("cuda") >= 0
+    assert window._device_combobox.currentData() == "cuda"
     window.close()
 
 
 def test_cuda_probe_preserves_manual_cpu_selection(qapp):  # noqa: ARG001
     window = MainWindow()
-    window._device_combo.activated.emit(0)
+    window._device_combobox.activated.emit(0)
 
     window._on_cuda_probe_finished(True)
 
-    assert window._device_combo.findData("cuda") >= 0
-    assert window._device_combo.currentData() == "cpu"
+    assert window._device_combobox.findData("cuda") >= 0
+    assert window._device_combobox.currentData() == "cpu"
     window.close()
 
 
 def test_manual_checkbox_defaults_are_used(qapp):  # noqa: ARG001
     w = MainWindow()
-    assert w._all_pages_chk.isChecked() is True
-    assert w._all_structures_chk.isChecked() is True
-    assert w._first_page_spin.isEnabled() is False
-    assert w._pages_spin.isEnabled() is False
-    assert w._crop_margin_spin.value() == 0.0
-    opts = w._current_options()
-    assert opts.figures is True
-    assert opts.text is True
-    assert w._chk_corefs.isChecked() is True
-    assert opts.corefs is True
-    assert opts.reactions is False
-    assert opts.first_page == 1
-    assert opts.num_pages is None
-    assert opts.max_molecules is None
-    assert opts.crop_margin == 0.0
-    w._all_pages_chk.setChecked(False)
-    assert w._first_page_spin.isEnabled() is True
-    assert w._pages_spin.isEnabled() is True
-    w._all_structures_chk.setChecked(False)
-    assert w._max_mols_spin.isEnabled() is True
+    assert w._all_pages_checkbox.isChecked() is True
+    assert w._all_structures_checkbox.isChecked() is True
+    assert w._first_page_spinbox.isEnabled() is False
+    assert w._page_count_spinbox.isEnabled() is False
+    assert w._crop_margin_spinbox.value() == 0.0
+    options = w._current_options()
+    assert options.figures is True
+    assert options.text is True
+    assert w._corefs_checkbox.isChecked() is True
+    assert options.corefs is True
+    assert options.reactions is False
+    assert options.first_page == 1
+    assert options.num_pages is None
+    assert options.max_molecules is None
+    assert options.crop_margin == 0.0
+    w._all_pages_checkbox.setChecked(False)
+    assert w._first_page_spinbox.isEnabled() is True
+    assert w._page_count_spinbox.isEnabled() is True
+    w._all_structures_checkbox.setChecked(False)
+    assert w._max_structures_spinbox.isEnabled() is True
     w.close()
 
 

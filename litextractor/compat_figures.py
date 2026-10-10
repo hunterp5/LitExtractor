@@ -46,6 +46,7 @@ def patch_pdfminer_cancellation() -> None:
     from .cancellation import raise_if_cancelled
 
     def _extract_pages(*args: Any, **kwargs: Any) -> Any:
+        """Check for cancellation, then parse the page as pdfminer normally would."""
         raise_if_cancelled()
         return original(*args, **kwargs)
 
@@ -76,6 +77,10 @@ def patch_empty_molscribe_results() -> None:
     def _convert_graph_to_smiles_in_process(
         coords, symbols, edges, images=None, num_workers=16  # noqa: ARG001
     ):
+        """Convert predicted molecule graphs to SMILES one by one, stopping on cancellation.
+
+        ``num_workers`` is accepted only for signature compatibility with upstream.
+        """
         if not coords:
             return [], [], 0.0
         import numpy as np
@@ -96,6 +101,31 @@ def patch_empty_molscribe_results() -> None:
     interface_module.convert_graph_to_smiles = _safe_convert_graph_to_smiles
 
 
+def _padded_pixel_box(
+    bbox: Any, margin_fraction: float, image_width: int, image_height: int
+) -> tuple[int, int, int, int] | None:
+    """Convert a normalized detector box to a padded ``(left, top, right, bottom)`` pixel box.
+
+    The box is clamped to the image bounds. Returns None for malformed or empty boxes.
+    """
+    import math
+
+    try:
+        left, top, right, bottom = (float(value) for value in bbox[:4])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if right <= left or bottom <= top:
+        return None
+    horizontal_padding = (right - left) * margin_fraction
+    vertical_padding = (bottom - top) * margin_fraction
+    return (
+        max(0, min(image_width, math.floor((left - horizontal_padding) * image_width))),
+        max(0, min(image_height, math.floor((top - vertical_padding) * image_height))),
+        max(0, min(image_width, math.ceil((right + horizontal_padding) * image_width))),
+        max(0, min(image_height, math.ceil((bottom + vertical_padding) * image_height))),
+    )
+
+
 def _clean_bbox_output_with_context(
     figures: Any,
     bboxes: Any,
@@ -109,42 +139,34 @@ def _clean_bbox_output_with_context(
     synthesize border pixels. The active extraction option supplies the margin; direct
     calls without an explicit margin use the shared default.
     """
-    import math
-
     import numpy as np
 
     results: list[dict] = []
-    cropped: list[Any] = []
-    references: list[dict] = []
+    cropped_images: list[Any] = []
+    molecule_references: list[dict] = []
     if margin_fraction is None:
         margin_fraction = current_molecule_crop_margin()
     margin_fraction = max(0.0, float(margin_fraction))
-    for index, output in enumerate(bboxes):
-        if index >= len(figures):
+    for figure_index, detections in enumerate(bboxes):
+        if figure_index >= len(figures):
             break
-        figure = np.asarray(figures[index])
-        if figure.ndim < 2:
-            results.append({"image": figures[index], "molecules": []})
+        figure_pixels = np.asarray(figures[figure_index])
+        if figure_pixels.ndim < 2:
+            results.append({"image": figures[figure_index], "molecules": []})
             continue
-        height, width = figure.shape[:2]
-        data: dict[str, Any] = {"image": figures[index], "molecules": []}
-        results.append(data)
-        for detection in output:
+        figure_height, figure_width = figure_pixels.shape[:2]
+        figure_result: dict[str, Any] = {"image": figures[figure_index], "molecules": []}
+        results.append(figure_result)
+        for detection in detections:
             if detection.get("category") != "[Mol]":
                 continue
-            try:
-                x0, y0, x1, y1 = (float(value) for value in detection["bbox"][:4])
-            except (KeyError, TypeError, ValueError):
+            pixel_box = _padded_pixel_box(
+                detection.get("bbox", ()), margin_fraction, figure_width, figure_height
+            )
+            if pixel_box is None:
                 continue
-            if x1 <= x0 or y1 <= y0:
-                continue
-            pad_x = (x1 - x0) * max(0.0, float(margin_fraction))
-            pad_y = (y1 - y0) * max(0.0, float(margin_fraction))
-            left = max(0, min(width, math.floor((x0 - pad_x) * width)))
-            top = max(0, min(height, math.floor((y0 - pad_y) * height)))
-            right = max(0, min(width, math.ceil((x1 + pad_x) * width)))
-            bottom = max(0, min(height, math.ceil((y1 + pad_y) * height)))
-            crop = figure[top:bottom, left:right]
+            left_pixel, top_pixel, right_pixel, bottom_pixel = pixel_box
+            crop = figure_pixels[top_pixel:bottom_pixel, left_pixel:right_pixel]
             if crop.size == 0:
                 continue
             molecule: dict[str, Any] = {
@@ -152,10 +174,10 @@ def _clean_bbox_output_with_context(
                 "score": detection.get("score"),
                 "image": crop,
             }
-            cropped.append(crop)
-            data["molecules"].append(molecule)
-            references.append(molecule)
-    return results, cropped, references
+            cropped_images.append(crop)
+            figure_result["molecules"].append(molecule)
+            molecule_references.append(molecule)
+    return results, cropped_images, molecule_references
 
 
 def patch_openchemie_molecule_crops() -> None:
@@ -188,27 +210,27 @@ def _layout_with_source_context(
 
     if blocks is None or source_image is None:
         return blocks
-    image = np.asarray(source_image)
-    if image.ndim < 2:
+    image_pixels = np.asarray(source_image)
+    if image_pixels.ndim < 2:
         return blocks
-    height, width = image.shape[:2]
+    image_height, image_width = image_pixels.shape[:2]
     expanded_blocks = []
     for block in blocks:
         try:
             geometry = getattr(block, "block", block)
-            x0, y0, x1, y1 = (float(value) for value in geometry.coordinates[:4])
-            if x1 <= x0 or y1 <= y0:
+            left, top, right, bottom = (float(value) for value in geometry.coordinates[:4])
+            if right <= left or bottom <= top:
                 expanded_blocks.append(block)
                 continue
-            pad_x = (x1 - x0) * max(0.0, float(margin_fraction))
-            pad_y = (y1 - y0) * max(0.0, float(margin_fraction))
-            coords = (
-                max(0, math.floor(x0 - pad_x)),
-                max(0, math.floor(y0 - pad_y)),
-                min(width, math.ceil(x1 + pad_x)),
-                min(height, math.ceil(y1 + pad_y)),
+            horizontal_padding = (right - left) * max(0.0, float(margin_fraction))
+            vertical_padding = (bottom - top) * max(0.0, float(margin_fraction))
+            expanded_coordinates = (
+                max(0, math.floor(left - horizontal_padding)),
+                max(0, math.floor(top - vertical_padding)),
+                min(image_width, math.ceil(right + horizontal_padding)),
+                min(image_height, math.ceil(bottom + vertical_padding)),
             )
-            expanded_geometry = type(geometry)(*coords)
+            expanded_geometry = type(geometry)(*expanded_coordinates)
             if geometry is block:
                 expanded_blocks.append(expanded_geometry)
             else:
@@ -230,19 +252,22 @@ def patch_openchemie_layout_crop_context() -> None:
     if getattr(TableExtractor, "_litextractor_layout_context", False):
         return
 
-    for key, method_name in (
+    for block_key, method_name in (
         ("figure", "extract_figure_information"),
         ("table", "extract_table_information"),
     ):
         original = getattr(TableExtractor, method_name)
 
-        def _extract_with_context(self, *args, _key=key, _original=original, **kwargs):
-            original_blocks = self.blocks.get(_key)
-            self.blocks[_key] = _layout_with_source_context(original_blocks, self.img)
+        def _extract_with_context(
+            self, *args, _block_key=block_key, _original=original, **kwargs
+        ):
+            """Run the original extraction on layout blocks widened with page context."""
+            original_blocks = self.blocks.get(_block_key)
+            self.blocks[_block_key] = _layout_with_source_context(original_blocks, self.img)
             try:
                 return _original(self, *args, **kwargs)
             finally:
-                self.blocks[_key] = original_blocks
+                self.blocks[_block_key] = original_blocks
 
         _extract_with_context._litextractor_layout_context = True  # type: ignore[attr-defined]
         setattr(TableExtractor, method_name, _extract_with_context)
@@ -262,25 +287,26 @@ def patch_openchemie_figure_fallback() -> None:
 
     original = TableExtractor.extract_all_tables_and_figures
 
-    def _fallback_extract_all_tables_and_figures(self, pages, pdfparser, content=None):
-        ret = original(self, pages, pdfparser, content)
-        if content == "figures" and not ret:
-            for index, page in enumerate(pages):
-                arr = np.asarray(page)
-                ret.append(
+    def _extract_with_page_fallback(self, pages, pdfparser, content=None):
+        """Run the original extraction; if no figures were found, treat each page as a figure."""
+        results = original(self, pages, pdfparser, content)
+        if content == "figures" and not results:
+            for page_index, page_image in enumerate(pages):
+                page_pixels = np.asarray(page_image)
+                results.append(
                     {
                         "title": "",
                         "figure": {
-                            "image": Image.fromarray(arr),
+                            "image": Image.fromarray(page_pixels),
                             "bbox": [0.0, 0.0, 1.0, 1.0],
                         },
                         "table": {"bbox": [], "content": None},
                         "footnote": "",
-                        "page": index,
+                        "page": page_index,
                     }
                 )
-        return ret
+        return results
 
-    _fallback_extract_all_tables_and_figures._litextractor_page_fallback = True  # type: ignore[attr-defined]
-    TableExtractor.extract_all_tables_and_figures = _fallback_extract_all_tables_and_figures
+    _extract_with_page_fallback._litextractor_page_fallback = True  # type: ignore[attr-defined]
+    TableExtractor.extract_all_tables_and_figures = _extract_with_page_fallback
     TableExtractor._litextractor_page_fallback = True

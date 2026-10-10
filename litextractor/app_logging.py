@@ -57,8 +57,8 @@ def configure_app_logging() -> Path | None:
 
     formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT)
     if not any(
-        isinstance(h, logging.StreamHandler) and not isinstance(h, RotatingFileHandler)
-        for h in root.handlers
+        isinstance(handler, logging.StreamHandler) and not isinstance(handler, RotatingFileHandler)
+        for handler in root.handlers
     ):
         console = logging.StreamHandler(sys.stderr)
         console.setFormatter(formatter)
@@ -89,22 +89,23 @@ def install_crash_excepthook(*, log_path: Path | None = None) -> None:
     """Show a Qt dialog for uncaught exceptions when a QApplication exists."""
     previous = sys.excepthook
 
-    def _hook(exc_type, exc, tb) -> None:
-        text = "".join(traceback.format_exception(exc_type, exc, tb))
+    def _hook(exc_type, exc, traceback_obj) -> None:
+        """Log an uncaught exception, show a crash dialog if possible, then call the old hook."""
+        text = "".join(traceback.format_exception(exc_type, exc, traceback_obj))
         logger.critical("Uncaught exception:\n%s", text)
         try:
             from PySide6.QtWidgets import QApplication, QMessageBox
 
             app = QApplication.instance()
             if app is not None:
-                loc = f"\n\nLog file:\n{log_path}" if log_path else ""
+                log_hint = f"\n\nLog file:\n{log_path}" if log_path else ""
                 QMessageBox.critical(
                     None,
                     "LitExtractor crashed",
-                    f"{exc_type.__name__}: {exc}{loc}\n\nSee the log for the full traceback.",
+                    f"{exc_type.__name__}: {exc}{log_hint}\n\nSee the log for the full traceback.",
                 )
         except Exception:
             logger.debug("Crash dialog failed", exc_info=True)
-        previous(exc_type, exc, tb)
+        previous(exc_type, exc, traceback_obj)
 
     sys.excepthook = _hook

@@ -13,4 +13,5 @@ class CudaAvailabilityWorker(QThread):
     availability_checked = Signal(bool)
 
     def run(self) -> None:
+        """Check CUDA availability on the worker thread and emit the result."""
         self.availability_checked.emit(cuda_available())

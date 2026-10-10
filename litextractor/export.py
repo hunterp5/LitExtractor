@@ -27,18 +27,20 @@ from .models import ExtractedMolecule
 def molecule_export_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, str]]:
     """Tabular fields used by CSV export and the results table."""
     rows: list[dict[str, str]] = []
-    for rec in molecules:
+    for molecule in molecules:
         rows.append(
             {
-                "SMILES": rec.smiles,
-                "Identifier": rec.identifier,
-                "Page": "; ".join(str(page) for page in rec.page_numbers),
-                "Source": "; ".join(rec.sources) if rec.sources else rec.source,
-                "Score": "" if rec.score is None else f"{rec.score:.3f}",
-                "Formula": rec.formula,
-                "MW": "" if rec.molecular_weight is None else f"{rec.molecular_weight:.3f}",
-                "InChIKey": rec.inchi_key,
-                "Context": rec.context,
+                "SMILES": molecule.smiles,
+                "Identifier": molecule.identifier,
+                "Page": "; ".join(str(page) for page in molecule.page_numbers),
+                "Source": "; ".join(molecule.sources) if molecule.sources else molecule.source,
+                "Score": "" if molecule.score is None else f"{molecule.score:.3f}",
+                "Formula": molecule.formula,
+                "MW": (
+                    "" if molecule.molecular_weight is None else f"{molecule.molecular_weight:.3f}"
+                ),
+                "InChIKey": molecule.inchi_key,
+                "Context": molecule.context,
             }
         )
     return rows
@@ -67,11 +69,11 @@ def write_csv(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
 def write_smi(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
     """Write SMILES plus identifier (tab-separated)."""
     with Path(path).open("w", encoding="utf-8", newline="\n") as handle:
-        for rec in molecules:
-            if not rec.smiles:
+        for molecule in molecules:
+            if not molecule.smiles:
                 continue
-            name = rec.identifier or rec.inchi_key or ""
-            handle.write(f"{rec.smiles}\t{name}\n" if name else f"{rec.smiles}\n")
+            name = molecule.identifier or molecule.inchi_key or ""
+            handle.write(f"{molecule.smiles}\t{name}\n" if name else f"{molecule.smiles}\n")
 
 
 def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
@@ -83,22 +85,24 @@ def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
     written = 0
     writer = Chem.SDWriter(str(path))
     try:
-        for rec in molecules:
-            mol = parse_mol(smiles=rec.smiles, molfile=rec.molfile)
-            if mol is None:
+        for molecule in molecules:
+            rdkit_mol = parse_mol(smiles=molecule.smiles, molfile=molecule.molfile)
+            if rdkit_mol is None:
                 continue
-            mol.SetProp("Identifier", rec.identifier)
-            mol.SetProp("Page", "; ".join(str(page) for page in rec.page_numbers))
-            mol.SetProp("Source", "; ".join(rec.sources) if rec.sources else rec.source)
-            if rec.score is not None:
-                mol.SetProp("Score", f"{rec.score:.3f}")
-            if rec.formula:
-                mol.SetProp("Formula", rec.formula)
-            if rec.inchi_key:
-                mol.SetProp("InChIKey", rec.inchi_key)
-            if rec.context:
-                mol.SetProp("Context", rec.context)
-            writer.write(mol)
+            rdkit_mol.SetProp("Identifier", molecule.identifier)
+            rdkit_mol.SetProp("Page", "; ".join(str(page) for page in molecule.page_numbers))
+            rdkit_mol.SetProp(
+                "Source", "; ".join(molecule.sources) if molecule.sources else molecule.source
+            )
+            if molecule.score is not None:
+                rdkit_mol.SetProp("Score", f"{molecule.score:.3f}")
+            if molecule.formula:
+                rdkit_mol.SetProp("Formula", molecule.formula)
+            if molecule.inchi_key:
+                rdkit_mol.SetProp("InChIKey", molecule.inchi_key)
+            if molecule.context:
+                rdkit_mol.SetProp("Context", molecule.context)
+            writer.write(rdkit_mol)
             written += 1
     finally:
         writer.close()

@@ -66,6 +66,7 @@ def cancel_on_model_forward(should_cancel: Callable[[], bool] | None) -> Iterato
             owner_thread = threading.get_ident()
 
             def _raise_if_cancelled(_module: object, _args: object) -> None:
+                """Torch forward pre-hook: raise on cancel, but only on the owning thread."""
                 if threading.get_ident() == owner_thread:
                     raise_if_cancelled()
 

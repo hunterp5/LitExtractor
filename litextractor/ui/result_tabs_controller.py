@@ -45,6 +45,16 @@ class ResultTabsController:
         startup_page: StartupPage,
         on_molecule_selected: Callable[..., None],
     ) -> None:
+        """Store the Qt collaborators this controller drives.
+
+        Args:
+            parent: Window used as the parent for menus and dialogs.
+            app_name: Title for confirmation dialogs.
+            result_tabs: Tab widget holding one tab per extraction run.
+            results_stack: Stack switching between the startup page and the result tabs.
+            startup_page: Idle/progress page shown when no results exist.
+            on_molecule_selected: Slot connected to each new table's ``selectionChanged``.
+        """
         self._parent = parent
         self._app_name = app_name
         self._result_tabs = result_tabs
@@ -100,11 +110,11 @@ class ResultTabsController:
         """Ask the user and delete a result tab when confirmed."""
         if not 0 <= index < self._result_tabs.count():
             return False
-        name = self._result_tabs.tabText(index)
+        tab_name = self._result_tabs.tabText(index)
         answer = QMessageBox.question(
             self._parent,
             self._app_name,
-            f"Delete '{name}'?",
+            f"Delete '{tab_name}'?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )

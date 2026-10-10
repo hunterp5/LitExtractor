@@ -27,6 +27,22 @@ from .crop_context import DEFAULT_MOLECULE_CROP_MARGIN
 
 @dataclass
 class ExtractOptions:
+    """User-selected settings controlling what is extracted from a PDF and how.
+
+    Attributes:
+        figures: Extract structures from figures.
+        text: Extract structures named in running text.
+        corefs: Resolve coreferences between figure structures and text mentions.
+        reactions: Also extract reactions.
+        merge_by_inchi: Merge molecules that share an InChIKey into one record.
+        first_page: 1-based first page to process.
+        num_pages: Number of pages to process; ``None`` or ``0`` means all remaining pages.
+        max_molecules: Cap on molecules kept; ``None`` or ``0`` means unlimited.
+        batch_size: Batch size for model inference.
+        device: Torch device name, e.g. ``"cpu"`` or ``"cuda"``; normalized to lowercase.
+        crop_margin: Fractional margin (0 to 0.5) added around molecule crops.
+    """
+
     figures: bool = True
     text: bool = True
     corefs: bool = True
@@ -40,6 +56,7 @@ class ExtractOptions:
     crop_margin: float = DEFAULT_MOLECULE_CROP_MARGIN
 
     def __post_init__(self) -> None:
+        """Validate and normalize the options on construction."""
         self.validate()
 
     def validate(self) -> None:
@@ -80,6 +97,26 @@ class ExtractOptions:
 
 @dataclass
 class ExtractedMolecule:
+    """A single extracted chemical structure with its provenance and computed properties.
+
+    Attributes:
+        smiles: SMILES string for the structure.
+        molfile: Optional MDL molfile block (may be filled in during enrichment).
+        source: Origin of the first detection, e.g. ``"figure"`` or ``"text"``.
+        page: Earliest known 1-based page number; kept in sync with ``pages``.
+        score: Confidence or quality score from extraction, if available.
+        identifier: Label or name found near the structure (e.g. compound number).
+        formula: Molecular formula computed by RDKit.
+        molecular_weight: Molecular weight computed by RDKit.
+        inchi_key: InChIKey computed by RDKit.
+        crop_png: PNG bytes of the cropped region of the PDF page the structure came from.
+        context: Surrounding text describing the structure.
+        bbox: Bounding box of the structure on its page, if known.
+        sources: Every origin that detected this structure (all merged duplicates);
+            ``source`` is the primary one.
+        pages: Every page the structure appears on, ascending; ``page`` is the first.
+    """
+
     smiles: str
     molfile: str = ""
     source: str = "figure"
@@ -96,6 +133,7 @@ class ExtractedMolecule:
     pages: list[int] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        """Seed ``sources`` from ``source`` and reconcile ``page`` with ``pages``."""
         if not self.sources:
             self.sources = [self.source]
         self.pages = list(self.page_numbers)
@@ -120,6 +158,16 @@ class ExtractedMolecule:
 
 @dataclass
 class ExtractedReaction:
+    """A reaction extracted from a figure.
+
+    Attributes:
+        page: 1-based page the reaction was found on, if known.
+        reactants: SMILES strings of the reactants.
+        products: SMILES strings of the products.
+        conditions: Free-text reaction conditions.
+        source: Origin of the detection, e.g. ``"figure"``.
+    """
+
     page: int | None
     reactants: list[str]
     products: list[str]
@@ -129,6 +177,15 @@ class ExtractedReaction:
 
 @dataclass
 class ExtractionResult:
+    """The complete output of one PDF extraction run.
+
+    Attributes:
+        pdf_path: Path of the processed PDF.
+        molecules: Extracted molecules.
+        reactions: Extracted reactions.
+        warnings: Non-fatal problems encountered during extraction.
+    """
+
     pdf_path: str
     molecules: list[ExtractedMolecule]
     reactions: list[ExtractedReaction]

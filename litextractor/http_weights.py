@@ -92,22 +92,35 @@ def looks_like_html(path: str) -> bool:
     return head.startswith(b"<!doctype") or head.startswith(b"<html")
 
 
-def download_url_to_file(url: str, dest: str) -> None:
-    """Download *url* to *dest*, trying Hugging Face then Dropbox, rejecting HTML."""
-    filename = safe_http_cache_filename(url)
+def _download_from_huggingface_hub(filename: str, destination_path: str) -> bool:
+    """Copy a known LayoutParser weight from the Hugging Face hub cache; True on success."""
     spec = LAYOUTPARSER_HF_WEIGHTS.get(filename)
-    if spec is not None:
-        try:
-            from huggingface_hub import hf_hub_download
+    if spec is None:
+        return False
+    try:
+        from huggingface_hub import hf_hub_download
 
-            cached = hf_hub_download(repo_id=spec[0], filename=spec[1])
-            if cached and os.path.isfile(cached) and not looks_like_html(cached):
-                os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-                if os.path.abspath(cached) != os.path.abspath(dest):
-                    shutil.copyfile(cached, dest)
-                return
-        except Exception as exc:
-            logger.warning("Hugging Face hub download failed for %s: %s", filename, exc)
+        cached_path = hf_hub_download(repo_id=spec[0], filename=spec[1])
+        if not (cached_path and os.path.isfile(cached_path) and not looks_like_html(cached_path)):
+            return False
+        os.makedirs(os.path.dirname(destination_path) or ".", exist_ok=True)
+        if os.path.abspath(cached_path) != os.path.abspath(destination_path):
+            shutil.copyfile(cached_path, destination_path)
+        return True
+    except Exception as exc:
+        logger.warning("Hugging Face hub download failed for %s: %s", filename, exc)
+        return False
+
+
+def download_url_to_file(url: str, destination_path: str) -> None:
+    """Download *url* to *destination_path*, trying Hugging Face then Dropbox, rejecting HTML.
+
+    Raises:
+        RuntimeError: If no candidate source yields a valid (non-HTML) file.
+    """
+    filename = safe_http_cache_filename(url)
+    if _download_from_huggingface_hub(filename, destination_path):
+        return
 
     candidates: list[str] = []
     hf_url = huggingface_weight_url(filename)
@@ -118,9 +131,9 @@ def download_url_to_file(url: str, dest: str) -> None:
         candidates.append(direct)
     candidates.append(url)
     last_error: Exception | None = None
-    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(destination_path) or ".", exist_ok=True)
     for candidate in candidates:
-        tmp_path = dest + ".tmp"
+        tmp_path = destination_path + ".tmp"
         try:
             request = Request(
                 candidate,
@@ -134,7 +147,7 @@ def download_url_to_file(url: str, dest: str) -> None:
                     f"Download from {candidate} returned HTML, not a model file."
                 )
                 continue
-            os.replace(tmp_path, dest)
+            os.replace(tmp_path, destination_path)
             return
         except Exception as exc:
             last_error = exc
@@ -155,6 +168,7 @@ def patch_iopath_http_cache_filenames() -> None:
     def _get_local_path(
         self, path: str, force: bool = False, cache_dir: str | None = None, **kwargs: object
     ) -> str:
+        """Return the local cache path for *path*, downloading it first when missing or invalid."""
         self._check_kwargs(kwargs)
         parsed_url = urlparse(path)
         dirname = os.path.join(

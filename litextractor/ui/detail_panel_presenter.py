@@ -42,6 +42,15 @@ class DetailPanelPresenter:
         detail_crop_card: QWidget,
         detail_values: dict[str, QLabel],
     ) -> None:
+        """Store the detail-pane widgets that this presenter updates.
+
+        Args:
+            detail_structure: Label showing the RDKit depiction of the selected molecule.
+            detail_crop: Label showing the scaled patent crop.
+            detail_crop_card: Container of ``detail_crop``, hidden when there is no crop.
+            detail_values: Value labels keyed by field name (Identifier, Page, Source,
+                Quality, Formula, Molecular weight, InChIKey).
+        """
         self._detail_structure = detail_structure
         self._detail_crop = detail_crop
         self._detail_crop_card = detail_crop_card
@@ -61,33 +70,44 @@ class DetailPanelPresenter:
 
     def refresh_selected_detail(self, molecule_table: QTableView | None) -> None:
         """Render detail widgets for the currently selected molecule."""
-        record = self.selected_molecule(molecule_table)
-        if record is None:
+        molecule = self.selected_molecule(molecule_table)
+        if molecule is None:
             self.clear_detail()
             return
 
+        self._show_structure(molecule)
+        self._show_crop(molecule)
+        for field_name, text in self._detail_text_values(molecule).items():
+            self._detail_values[field_name].setText(text)
+
+    def _show_structure(self, molecule: ExtractedMolecule) -> None:
+        """Depict *molecule* in the structure label, or show a "No structure" placeholder."""
         # Imported lazily so application startup does not load RDKit.
-        from ..chemistry import molecule_quality_score, parse_mol
+        from ..chemistry import parse_mol
         from ..structure_draw import render_molecule_png
 
-        molecule = parse_mol(smiles=record.smiles, molfile=record.molfile)
-        png = b""
-        if molecule is not None:
+        rdkit_mol = parse_mol(smiles=molecule.smiles, molfile=molecule.molfile)
+        structure_png = b""
+        if rdkit_mol is not None:
             try:
-                png = render_molecule_png(molecule, DETAIL_STRUCTURE_WIDTH, DETAIL_STRUCTURE_HEIGHT)
+                structure_png = render_molecule_png(
+                    rdkit_mol, DETAIL_STRUCTURE_WIDTH, DETAIL_STRUCTURE_HEIGHT
+                )
             except Exception:
                 logger.debug("Detail structure render failed", exc_info=True)
-        if png:
-            self._detail_structure.setPixmap(pixmap_from_png(png))
+        if structure_png:
+            self._detail_structure.setPixmap(pixmap_from_png(structure_png))
             self._detail_structure.setText("")
         else:
             self._detail_structure.setPixmap(QPixmap())
             self._detail_structure.setText("No structure")
 
-        if record.crop_png:
-            crop = pixmap_from_png(record.crop_png)
+    def _show_crop(self, molecule: ExtractedMolecule) -> None:
+        """Show the scaled patent crop and its card, or hide the card when there is no crop."""
+        if molecule.crop_png:
+            crop_pixmap = pixmap_from_png(molecule.crop_png)
             self._detail_crop.setPixmap(
-                crop.scaled(320, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                crop_pixmap.scaled(320, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
             self._detail_crop.setText("")
             self._detail_crop_card.show()
@@ -96,21 +116,28 @@ class DetailPanelPresenter:
             self._detail_crop.setText("—")
             self._detail_crop_card.hide()
 
-        page = "; ".join(str(page_number) for page_number in record.page_numbers) or "—"
-        score = f"{molecule_quality_score(record):.3f}"
-        mw = "—" if record.molecular_weight is None else f"{record.molecular_weight:.3f}"
-        source = "; ".join(record.sources) if record.sources else record.source
-        values = {
-            "Identifier": record.identifier or "—",
-            "Page": page,
-            "Source": source or "—",
-            "Quality": score,
-            "Formula": record.formula or "—",
-            "Molecular weight": mw,
-            "InChIKey": record.inchi_key or "—",
+    @staticmethod
+    def _detail_text_values(molecule: ExtractedMolecule) -> dict[str, str]:
+        """Return the text for each detail field of *molecule*, using "—" for blanks."""
+        # Imported lazily so application startup does not load RDKit.
+        from ..chemistry import molecule_quality_score
+
+        pages_text = "; ".join(str(page_number) for page_number in molecule.page_numbers) or "—"
+        quality_text = f"{molecule_quality_score(molecule):.3f}"
+        if molecule.molecular_weight is None:
+            molecular_weight_text = "—"
+        else:
+            molecular_weight_text = f"{molecule.molecular_weight:.3f}"
+        source_text = "; ".join(molecule.sources) if molecule.sources else molecule.source
+        return {
+            "Identifier": molecule.identifier or "—",
+            "Page": pages_text,
+            "Source": source_text or "—",
+            "Quality": quality_text,
+            "Formula": molecule.formula or "—",
+            "Molecular weight": molecular_weight_text,
+            "InChIKey": molecule.inchi_key or "—",
         }
-        for name, value in values.items():
-            self._detail_values[name].setText(value)
 
     def clear_detail(self) -> None:
         """Reset detail widgets to their empty state."""

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License
 # along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
+"""Entry point for ``python -m litextractor``; launches the desktop application."""
+
 from .bootstrap import main
 
 if __name__ == "__main__":

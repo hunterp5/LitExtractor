@@ -62,6 +62,7 @@ def patch_transformers_torch_load_check() -> None:
         return
 
     def _check_torch_load_is_safe() -> None:
+        """Skip the version gate inside OpenChemIE checkpoint loads; otherwise defer to it."""
         if _allow_legacy_checkpoint_loads.get():
             return None
         original_check()
@@ -85,16 +86,17 @@ def patch_torch_load_weights_only_default() -> None:
         import torch
     except ImportError:
         return
-    load = torch.load
-    if getattr(load, "_litextractor_patched", False):
+    original_load = torch.load
+    if getattr(original_load, "_litextractor_patched", False):
         return
 
     def _load(*args: Any, **kwargs: Any) -> Any:
+        """Call ``torch.load`` after a cancel check, defaulting ``weights_only=False`` in scope."""
         raise_if_cancelled()
         if _allow_legacy_checkpoint_loads.get():
             kwargs.setdefault("weights_only", False)
-        return load(*args, **kwargs)
+        return original_load(*args, **kwargs)
 
     _load._litextractor_patched = True  # type: ignore[attr-defined]
-    _load.__wrapped__ = load  # type: ignore[attr-defined]
+    _load.__wrapped__ = original_load  # type: ignore[attr-defined]
     torch.load = _load

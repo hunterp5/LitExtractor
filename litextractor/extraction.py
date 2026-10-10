@@ -45,13 +45,6 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[str], None]
 
 
-@contextmanager
-def _model_call(should_cancel: Callable[[], bool] | None) -> Iterator[None]:
-    """Scope for one OpenChemIE call: legacy checkpoint loading plus prompt cancellation."""
-    with openchemie_checkpoint_loads(), cancel_on_model_forward(should_cancel):
-        yield
-
-
 class OpenChemIEClient(Protocol):
     """Subset of OpenChemIE used by this app (allows fakes in tests).
 
@@ -59,66 +52,260 @@ class OpenChemIEClient(Protocol):
     the extraction pipeline converts them to one-based pages at the API boundary.
     """
 
-    def extract_molecules_from_figures_in_pdf(self, pdf: str, **kwargs: Any) -> list[dict]: ...
+    def extract_molecules_from_figures_in_pdf(self, pdf: str, **kwargs: Any) -> list[dict]:
+        """Detect and read molecule structures in the figures of ``pdf``."""
+        ...
 
-    def extract_molecules_from_text_in_pdf(self, pdf: str, **kwargs: Any) -> list[dict]: ...
+    def extract_molecules_from_text_in_pdf(self, pdf: str, **kwargs: Any) -> list[dict]:
+        """Find chemical names in the running text of ``pdf``."""
+        ...
 
     def extract_molecule_corefs_from_figures_in_pdf(
         self, pdf: str, **kwargs: Any
-    ) -> list[dict]: ...
+    ) -> list[dict]:
+        """Pair detected figure molecules with their text labels in ``pdf``."""
+        ...
 
-    def extract_reactions_from_pdf(self, pdf: str, **kwargs: Any) -> dict: ...
-
+    def extract_reactions_from_pdf(self, pdf: str, **kwargs: Any) -> dict:
+        """Extract reactions from the figures and text of ``pdf``."""
+        ...
 
 
 def merge_molecules_by_inchi(molecules: list[ExtractedMolecule]) -> list[ExtractedMolecule]:
-    """Collapse records that share an InChIKey; keep text-only rows distinct."""
+    """Collapse records that share an InChIKey; keep records without one distinct.
+
+    The first record of each group survives and absorbs the others' sources, pages,
+    identifiers, context, crop image, and highest score.
+    """
     merged: list[ExtractedMolecule] = []
-    index: dict[str, int] = {}
-    for rec in molecules:
-        key = (rec.inchi_key or "").strip()
-        if not key:
-            merged.append(rec)
+    merged_index_by_key: dict[str, int] = {}
+    for molecule in molecules:
+        inchi_key = (molecule.inchi_key or "").strip()
+        if not inchi_key:
+            merged.append(molecule)
             continue
-        if key in index:
-            existing = merged[index[key]]
-            for source in rec.sources or [rec.source]:
-                if source not in existing.sources:
-                    existing.sources.append(source)
-            if rec.identifier and rec.identifier not in existing.identifier:
-                existing.identifier = (
-                    f"{existing.identifier}; {rec.identifier}"
-                    if existing.identifier
-                    else rec.identifier
-                )
-            if rec.context and rec.context not in existing.context:
-                existing.context = (
-                    f"{existing.context}\n{rec.context}" if existing.context else rec.context
-                )
-            if existing.crop_png is None and rec.crop_png:
-                existing.crop_png = rec.crop_png
-            if existing.score is None:
-                existing.score = rec.score
-            elif rec.score is not None:
-                existing.score = max(existing.score, rec.score)
-            for page in rec.page_numbers:
-                existing.add_page(page)
+        if inchi_key not in merged_index_by_key:
+            merged_index_by_key[inchi_key] = len(merged)
+            merged.append(molecule)
             continue
-        index[key] = len(merged)
-        merged.append(rec)
+        survivor = merged[merged_index_by_key[inchi_key]]
+        for source in molecule.sources or [molecule.source]:
+            if source not in survivor.sources:
+                survivor.sources.append(source)
+        if molecule.identifier and molecule.identifier not in survivor.identifier:
+            survivor.identifier = (
+                f"{survivor.identifier}; {molecule.identifier}"
+                if survivor.identifier
+                else molecule.identifier
+            )
+        if molecule.context and molecule.context not in survivor.context:
+            survivor.context = (
+                f"{survivor.context}\n{molecule.context}" if survivor.context else molecule.context
+            )
+        if survivor.crop_png is None and molecule.crop_png:
+            survivor.crop_png = molecule.crop_png
+        if survivor.score is None:
+            survivor.score = molecule.score
+        elif molecule.score is not None:
+            survivor.score = max(survivor.score, molecule.score)
+        for page in molecule.page_numbers:
+            survivor.add_page(page)
     return merged
 
 
-def _normalize_openchemie_pages(figures: Any) -> Any:
-    """Convert OpenChemIE's zero-based figure-page indexes to one-based pages."""
-    for figure in figures or []:
+def _one_based_pages(figure_results: Any) -> Any:
+    """Convert OpenChemIE's zero-based page indexes to one-based pages, in place."""
+    for figure in figure_results or []:
         if not isinstance(figure, dict) or figure.get("page") is None:
             continue
         try:
             figure["page"] = int(figure["page"]) + 1
         except (TypeError, ValueError):
             logger.debug("Ignoring invalid OpenChemIE page value %r", figure.get("page"))
-    return figures
+    return figure_results
+
+
+@contextmanager
+def _openchemie_model_call(should_cancel: Callable[[], bool] | None) -> Iterator[None]:
+    """Scope for one OpenChemIE call: legacy checkpoint loading plus prompt cancellation."""
+    with openchemie_checkpoint_loads(), cancel_on_model_forward(should_cancel):
+        yield
+
+
+class _ExtractionRun:
+    """State and stages of one extraction of a single PDF."""
+
+    def __init__(
+        self,
+        pdf_path: str,
+        options: ExtractOptions,
+        client: OpenChemIEClient | None,
+        progress_callback: ProgressCallback | None,
+        should_cancel: Callable[[], bool] | None,
+    ) -> None:
+        """Hold the inputs of one run; ``client=None`` means load the cached OpenChemIE."""
+        self._pdf_path = pdf_path
+        self._options = options
+        self._client = client
+        self._progress_callback = progress_callback
+        self._should_cancel = should_cancel
+        self._model_kwargs: dict[str, Any] = {"batch_size": options.batch_size}
+        self._pdf_for_models = pdf_path
+        self.molecules: list[ExtractedMolecule] = []
+        self.reactions: list[ExtractedReaction] = []
+        self.warnings: list[str] = []
+
+    def execute(self) -> ExtractionResult:
+        """Run every selected stage and return the merged, ranked, capped result."""
+        options = self._options
+        self._pdf_for_models, page_offset, is_temporary_pdf = slice_pdf_pages(
+            self._pdf_path, options.first_page, options.num_pages
+        )
+        try:
+            self._prepare_client(page_offset)
+            if options.figures:
+                self._run_figure_stage()
+            if options.text and not self._molecule_cap_reached():
+                self._run_text_stage()
+            if options.corefs and any(
+                molecule.source == "figure" for molecule in self.molecules
+            ):
+                self._run_coreference_stage()
+            if options.reactions:
+                self._run_reaction_stage()
+
+            self._raise_if_cancelled()
+            shift_result_pages(self.molecules, self.reactions, page_offset)
+            if options.merge_by_inchi:
+                self.molecules = merge_molecules_by_inchi(self.molecules)
+            self.molecules = prioritize_molecules(self.molecules)
+            self._apply_molecule_cap()
+
+            self._report_progress(
+                f"Finished — {len(self.molecules)} molecule(s), {len(self.reactions)} reaction(s)."
+            )
+            return ExtractionResult(
+                pdf_path=self._pdf_path,
+                molecules=self.molecules,
+                reactions=self.reactions,
+                warnings=self.warnings,
+            )
+        finally:
+            if is_temporary_pdf:
+                try:
+                    os.remove(self._pdf_for_models)
+                except OSError:
+                    logger.debug(
+                        "Could not remove temp PDF %s", self._pdf_for_models, exc_info=True
+                    )
+
+    def _prepare_client(self, page_offset: int) -> None:
+        """Load OpenChemIE if needed and build the keyword arguments shared by all stages."""
+        if self._client is None:
+            self._report_progress("Loading OpenChemIE models…")
+            self._client = load_openchemie(self._options.device)
+            self._raise_if_cancelled()
+        if self._options.num_pages and page_offset == 0:
+            self._model_kwargs["num_pages"] = self._options.num_pages
+        text_reactions_supported = getattr(
+            self._client, "_litextractor_text_reactions_supported", True
+        )
+        if self._options.reactions and text_reactions_supported is False:
+            self.warnings.append(
+                "Text-based reaction extraction is unavailable in this OpenChemIE setup; "
+                "figure-based reactions will still be extracted."
+            )
+
+    def _run_figure_stage(self) -> None:
+        """Extract molecule structures from figures."""
+        with self._stage("Extracting molecules from figures…", "Figure extraction"):
+            with _openchemie_model_call(self._should_cancel):
+                with use_molecule_crop_margin(self._options.crop_margin):
+                    figure_results = _one_based_pages(
+                        self._client.extract_molecules_from_figures_in_pdf(
+                            self._pdf_for_models, **self._model_kwargs
+                        )
+                    )
+            self.molecules.extend(
+                molecules_from_figure_results(
+                    figure_results, crop_margin=self._options.crop_margin
+                )
+            )
+            self._apply_molecule_cap()
+
+    def _run_text_stage(self) -> None:
+        """Extract chemical names from the running text."""
+        with self._stage("Extracting chemical names from text…", "Text extraction"):
+            with _openchemie_model_call(self._should_cancel):
+                text_pages = self._client.extract_molecules_from_text_in_pdf(
+                    self._pdf_for_models, **self._model_kwargs
+                )
+            self.molecules.extend(molecules_from_text_results(text_pages))
+            self._apply_molecule_cap()
+
+    def _run_coreference_stage(self) -> None:
+        """Attach figure labels (such as compound numbers) to the figure molecules."""
+        with self._stage("Resolving molecule–label coreferences…", "Coreference extraction"):
+            with _openchemie_model_call(self._should_cancel):
+                coreference_figures = _one_based_pages(
+                    self._client.extract_molecule_corefs_from_figures_in_pdf(
+                        self._pdf_for_models, **self._model_kwargs, molscribe=False, ocr=True
+                    )
+                )
+            apply_coref_identifiers(self.molecules, coreference_figures)
+
+    def _run_reaction_stage(self) -> None:
+        """Extract reactions and the molecules that take part in them."""
+        with self._stage("Extracting reactions…", "Reaction extraction"):
+            with _openchemie_model_call(self._should_cancel):
+                reaction_payload = self._client.extract_reactions_from_pdf(
+                    self._pdf_for_models, **self._model_kwargs
+                )
+            if isinstance(reaction_payload, dict):
+                _one_based_pages(reaction_payload.get("figures"))
+            reactions, reaction_molecules = reactions_from_pdf_results(reaction_payload)
+            self.reactions.extend(reactions)
+            self.molecules.extend(reaction_molecules)
+            self._apply_molecule_cap()
+
+    @contextmanager
+    def _stage(self, progress_message: str, stage_name: str) -> Iterator[None]:
+        """Guard one stage: check cancellation, report progress, and turn failures into warnings.
+
+        ``ExtractionCancelled`` derives from ``BaseException`` and therefore passes through.
+        """
+        self._raise_if_cancelled()
+        self._report_progress(progress_message)
+        try:
+            yield
+        except Exception as exc:
+            logger.exception("%s failed", stage_name)
+            self.warnings.append(f"{stage_name} failed: {exc}")
+
+    def _report_progress(self, message: str) -> None:
+        """Send ``message`` to the progress callback (if any) and the log."""
+        if self._progress_callback is not None:
+            self._progress_callback(message)
+        logger.info(message)
+
+    def _raise_if_cancelled(self) -> None:
+        """Raise ``ExtractionCancelled`` when the caller has requested cancellation."""
+        if self._should_cancel is not None and self._should_cancel():
+            raise ExtractionCancelled("Extraction cancelled.")
+
+    def _molecule_cap_reached(self) -> bool:
+        """True when a molecule limit is set and the collected molecules meet it."""
+        limit = self._options.max_molecules
+        return bool(limit) and len(self.molecules) >= limit
+
+    def _apply_molecule_cap(self) -> None:
+        """Truncate to the molecule limit, recording a single partial-run warning."""
+        limit = self._options.max_molecules
+        if not limit or len(self.molecules) < limit:
+            return
+        if not any("partial run" in warning for warning in self.warnings):
+            self.warnings.append(f"Stopped at {limit} structures (partial run).")
+        self.molecules = self.molecules[:limit]
 
 
 def extract_from_pdf(
@@ -129,152 +316,14 @@ def extract_from_pdf(
     progress: ProgressCallback | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> ExtractionResult:
-    """Run the selected OpenChemIE extractors and return enriched records."""
+    """Run the selected OpenChemIE extractors and return enriched records.
+
+    ``client`` defaults to the cached real OpenChemIE; pass a fake in tests. ``progress``
+    receives human-readable status messages. ``should_cancel`` is polled between stages and
+    during model inference; when it returns True, ``ExtractionCancelled`` is raised.
+    """
     options.validate()
     # The cached client is shared and stateful, so only caller-supplied clients skip the lock.
     session = openchemie_client_session() if client is None else nullcontext()
     with session:
-        return _extract_from_pdf(
-            pdf_path,
-            options,
-            client=client,
-            progress=progress,
-            should_cancel=should_cancel,
-        )
-
-
-def _extract_from_pdf(
-    pdf_path: str,
-    options: ExtractOptions,
-    *,
-    client: OpenChemIEClient | None = None,
-    progress: ProgressCallback | None = None,
-    should_cancel: Callable[[], bool] | None = None,
-) -> ExtractionResult:
-    def _progress(message: str) -> None:
-        if progress is not None:
-            progress(message)
-        logger.info(message)
-
-    def _check_cancel() -> None:
-        if should_cancel is not None and should_cancel():
-            raise ExtractionCancelled("Extraction cancelled.")
-
-    def _at_cap(mols: list[ExtractedMolecule]) -> bool:
-        cap = options.max_molecules
-        return bool(cap) and len(mols) >= int(cap)
-
-    def _trim(mols: list[ExtractedMolecule], warnings: list[str]) -> list[ExtractedMolecule]:
-        cap = options.max_molecules
-        if not cap or len(mols) < int(cap):
-            return mols
-        cap = int(cap)
-        if not any("partial run" in item for item in warnings):
-            warnings.append(f"Stopped at {cap} structures (partial run).")
-        return mols[:cap]
-
-    work_pdf, page_offset, is_temp = slice_pdf_pages(
-        pdf_path, options.first_page, options.num_pages
-    )
-    try:
-        if client is None:
-            _progress("Loading OpenChemIE models…")
-            client = load_openchemie(options.device)
-            _check_cancel()
-        assert client is not None
-
-        kwargs: dict[str, Any] = {"batch_size": options.batch_size}
-        if options.num_pages and page_offset == 0:
-            kwargs["num_pages"] = options.num_pages
-
-        molecules: list[ExtractedMolecule] = []
-        reactions: list[ExtractedReaction] = []
-        warnings: list[str] = []
-        if options.reactions and getattr(
-            client, "_litextractor_text_reactions_supported", True
-        ) is False:
-            warnings.append(
-                "Text-based reaction extraction is unavailable in this OpenChemIE setup; "
-                "figure-based reactions will still be extracted."
-            )
-
-        if options.figures:
-            _check_cancel()
-            _progress("Extracting molecules from figures…")
-            try:
-                with _model_call(should_cancel):
-                    with use_molecule_crop_margin(options.crop_margin):
-                        figures = _normalize_openchemie_pages(
-                            client.extract_molecules_from_figures_in_pdf(work_pdf, **kwargs)
-                        )
-                molecules.extend(molecules_from_figure_results(figures, crop_margin=options.crop_margin))
-                molecules = _trim(molecules, warnings)
-            except Exception as exc:
-                logger.exception("Figure molecule extraction failed")
-                warnings.append(f"Figure extraction failed: {exc}")
-
-        if options.text and not _at_cap(molecules):
-            _check_cancel()
-            _progress("Extracting chemical names from text…")
-            try:
-                with _model_call(should_cancel):
-                    pages = client.extract_molecules_from_text_in_pdf(work_pdf, **kwargs)
-                molecules.extend(molecules_from_text_results(pages))
-                molecules = _trim(molecules, warnings)
-            except Exception as exc:
-                logger.exception("Text molecule extraction failed")
-                warnings.append(f"Text extraction failed: {exc}")
-
-        if options.corefs and any(molecule.source == "figure" for molecule in molecules):
-            _check_cancel()
-            _progress("Resolving molecule–label coreferences…")
-            try:
-                with _model_call(should_cancel):
-                    corefs = _normalize_openchemie_pages(
-                        client.extract_molecule_corefs_from_figures_in_pdf(
-                            work_pdf, **kwargs, molscribe=False, ocr=True
-                        )
-                    )
-                apply_coref_identifiers(molecules, corefs)
-            except Exception as exc:
-                logger.exception("Coreference extraction failed")
-                warnings.append(f"Coreference extraction failed: {exc}")
-
-        if options.reactions:
-            _check_cancel()
-            _progress("Extracting reactions…")
-            try:
-                with _model_call(should_cancel):
-                    payload = client.extract_reactions_from_pdf(work_pdf, **kwargs)
-                if isinstance(payload, dict):
-                    _normalize_openchemie_pages(payload.get("figures"))
-                rxns, rxn_mols = reactions_from_pdf_results(payload)
-                reactions.extend(rxns)
-                molecules.extend(rxn_mols)
-                molecules = _trim(molecules, warnings)
-            except Exception as exc:
-                logger.exception("Reaction extraction failed")
-                warnings.append(f"Reaction extraction failed: {exc}")
-
-        _check_cancel()
-        shift_result_pages(molecules, reactions, page_offset)
-        if options.merge_by_inchi:
-            molecules = merge_molecules_by_inchi(molecules)
-        molecules = prioritize_molecules(molecules)
-        molecules = _trim(molecules, warnings)
-
-        _progress(f"Finished — {len(molecules)} molecule(s), {len(reactions)} reaction(s).")
-        return ExtractionResult(
-            pdf_path=pdf_path,
-            molecules=molecules,
-            reactions=reactions,
-            warnings=warnings,
-        )
-    finally:
-        if is_temp:
-            try:
-                os.remove(work_pdf)
-            except OSError:
-                logger.debug("Could not remove temp PDF %s", work_pdf, exc_info=True)
-
-
+        return _ExtractionRun(pdf_path, options, client, progress, should_cancel).execute()

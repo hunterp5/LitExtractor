@@ -24,6 +24,7 @@ from PySide6.QtWidgets import QApplication
 
 
 def light_palette() -> QPalette:
+    """Build the application's light ``QPalette`` (including muted disabled-text colors)."""
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor("#f5f7fa"))
     palette.setColor(QPalette.ColorRole.WindowText, QColor("#19202c"))
