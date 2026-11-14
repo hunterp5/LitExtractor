@@ -256,7 +256,6 @@ def test_cuda_probe_preserves_manual_cpu_selection(qapp):  # noqa: ARG001
 def test_manual_checkbox_defaults_are_used(qapp):  # noqa: ARG001
     w = MainWindow()
     assert w._all_pages_checkbox.isChecked() is True
-    assert w._all_structures_checkbox.isChecked() is True
     assert w._first_page_spinbox.isEnabled() is False
     assert w._page_count_spinbox.isEnabled() is False
     options = w._current_options()
@@ -271,8 +270,7 @@ def test_manual_checkbox_defaults_are_used(qapp):  # noqa: ARG001
     w._all_pages_checkbox.setChecked(False)
     assert w._first_page_spinbox.isEnabled() is True
     assert w._page_count_spinbox.isEnabled() is True
-    w._all_structures_checkbox.setChecked(False)
-    assert w._max_structures_spinbox.isEnabled() is True
+    assert not hasattr(w, "_max_structures_spinbox")  # every structure is always kept
     w.close()
 
 

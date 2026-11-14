@@ -79,7 +79,7 @@ After an editable installation, the `litextractor` console command is also avail
 
 1. Open one or more PDFs with **File → Open PDFs…**, or every PDF in a folder with **File → Open Folder of PDFs…** (subfolders are not included). Several PDFs are extracted one after another with the same options; each result tab appears as soon as its PDF is done, a PDF that fails does not stop the rest, and one summary lists failures and warnings at the end.
 2. Select the sources to process: figures, text, coreferences, reactions, or data tables.
-3. Optionally set a page range, a molecule limit, and a device.
+3. Optionally set a page range and a device.
 4. Start extraction and review the results in the Molecules, Tables and Reactions tabs (Reactions appears only when reactions were extracted). Each extraction is kept in its own result tab; right-click a result tab and confirm to delete it.
 5. Review table data in the **Tables** tab (see below).
 6. Export molecule results through **File → Export**. Exports use the currently active result tab.

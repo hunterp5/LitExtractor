@@ -273,14 +273,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_pdf_group())
         layout.addWidget(self._build_sources_group())
         layout.addWidget(self._build_page_range_group())
-        layout.addWidget(self._build_structure_limit_group())
         layout.addWidget(self._build_processing_group())
         layout.addLayout(self._build_action_buttons())
 
         self._sync_page_range_enabled_state()
-        self._sync_structure_limit_enabled_state()
         self._all_pages_checkbox.toggled.connect(self._sync_page_range_enabled_state)
-        self._all_structures_checkbox.toggled.connect(self._sync_structure_limit_enabled_state)
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 0)
@@ -369,28 +366,6 @@ class MainWindow(QMainWindow):
             "How many pages to process from First page. 0 = through the end."
         )
         form.addRow("Page count:", self._page_count_spinbox)
-        group_layout.addLayout(form)
-        return group
-
-    def _build_structure_limit_group(self) -> QGroupBox:
-        """Build the controls for capping how many structures are extracted."""
-        group = QGroupBox("Structure limit")
-        group_layout = QVBoxLayout(group)
-        self._all_structures_checkbox = QCheckBox("All Structures")
-        self._all_structures_checkbox.setChecked(True)
-        self._all_structures_checkbox.setToolTip(
-            "Ignore the structure cap and extract all detected molecules."
-        )
-        group_layout.addWidget(self._all_structures_checkbox)
-
-        form = QFormLayout()
-        form.setSpacing(4)
-        self._max_structures_spinbox = QSpinBox()
-        self._max_structures_spinbox.setRange(0, 99999)
-        self._max_structures_spinbox.setValue(50)
-        self._max_structures_spinbox.setSpecialValueText("All")
-        self._max_structures_spinbox.setToolTip("Stop after this many structures. 0 = no cap.")
-        form.addRow("Max structures:", self._max_structures_spinbox)
         group_layout.addLayout(form)
         return group
 
@@ -569,10 +544,6 @@ class MainWindow(QMainWindow):
         self._first_page_spinbox.setEnabled(enabled)
         self._page_count_spinbox.setEnabled(enabled)
 
-    def _sync_structure_limit_enabled_state(self) -> None:
-        """Enable the max-structures spin box only when "All Structures" is unchecked."""
-        self._max_structures_spinbox.setEnabled(not self._all_structures_checkbox.isChecked())
-
     def start_cuda_probe(self) -> None:
         """Check CUDA in the background after the main window has been shown."""
         if self._cuda_probe_started:
@@ -602,14 +573,11 @@ class MainWindow(QMainWindow):
 
     def _current_options(self) -> ExtractOptions:
         """Translate the extract-panel controls into extraction options."""
-        max_structures = int(self._max_structures_spinbox.value())
         first_page = int(self._first_page_spinbox.value())
         page_count = int(self._page_count_spinbox.value())
         if self._all_pages_checkbox.isChecked():
             first_page = 1
             page_count = 0
-        if self._all_structures_checkbox.isChecked():
-            max_structures = 0
         return ExtractOptions(
             figures=self._figures_checkbox.isChecked(),
             text=self._text_checkbox.isChecked(),
@@ -619,7 +587,6 @@ class MainWindow(QMainWindow):
             merge_by_inchi=self._merge_checkbox.isChecked(),
             first_page=first_page,
             num_pages=page_count if page_count > 0 else None,
-            max_molecules=max_structures if max_structures > 0 else None,
             device=str(self._device_combobox.currentData() or "cpu"),
         )
 

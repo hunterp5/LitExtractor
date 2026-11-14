@@ -70,7 +70,8 @@ Licence note for that work: PyMuPDF is AGPL; pypdfium2 and pdfplumber are permis
 
 ## Known issues
 
-- `max_molecules` is applied before merging and ranking, so the cap can drop better results.
+- `ExtractOptions.max_molecules` (Python API only; the app no longer offers a limit) is applied
+  before merging and ranking, so the cap can drop better results.
 - Chemical names found in text never become structures (no name-to-structure step such as OPSIN).
 - Both `opencv-python` and `opencv-python-headless` are dependencies; only one should be.
 - PyPDF2 is deprecated in favour of `pypdf`.
