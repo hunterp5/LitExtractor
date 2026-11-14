@@ -23,6 +23,21 @@ OpenChemIE's own table extraction, which reads the PDF's text layer.
    compounds by category (a column of names per class), which are left without a key today.
    Tables continuing across pages are joined already.
 
+## Done after the table plan
+
+Measured on full runs of the EGFR, FAK and JAK reviews (November 2026):
+
+- Labels: activity values, conditions, captions, remarks and panel letters are no longer taken
+  for compound labels (about half of FAK's labels were such text); merged coreference text is
+  reduced to its compound number.
+- Stray fragments from text read as atoms are removed (93 of 301 JAK structures had one), so
+  copies of one drug now share an InChIKey skeleton and count as one match: JAK Table 1's
+  ambiguous rows fell from 17 to 5.
+- Table names spelt slightly differently from a structure's label link as "spelling differs".
+- Names from Text had returned nothing (the name model's output format was misread); it now
+  works, with OPSIN turning systematic names into structures. EGFR Table 3 links 13 of 14 rows
+  (9 before).
+
 ## Shelved: going beyond OpenChemIE
 
 Paused in November 2026 so that the table work comes first. The work so far is on the local
@@ -72,7 +87,9 @@ Licence note for that work: PyMuPDF is AGPL; pypdfium2 and pdfplumber are permis
 
 - `ExtractOptions.max_molecules` (Python API only; the app no longer offers a limit) is applied
   before merging and ranking, so the cap can drop better results.
-- Chemical names found in text never become structures (no name-to-structure step such as OPSIN).
+- Trade and code names found in text ("Gefitinib", "AZD9291") stay names without a structure;
+  OPSIN only reads systematic names. A PubChem lookup would cover them but sends the names to
+  an outside service, so it would need to be opt-in.
 - Both `opencv-python` and `opencv-python-headless` are dependencies; only one should be.
 - PyPDF2 is deprecated in favour of `pypdf`.
 - No CI runs the test suite.

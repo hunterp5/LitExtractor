@@ -63,6 +63,7 @@ _LABEL_PREFIX = re.compile(
 )
 _OCR_FOLD = str.maketrans({"I": "1", "l": "1", "|": "1", "i": "1", "O": "0", "o": "0"})
 _SHORT_LABEL = 6
+_FUZZY_MIN_LENGTH = 7
 
 
 def normalize_text(text: Any) -> str:
@@ -472,6 +473,7 @@ class _LabelIndex:
             if not key or (rows is not None and row_index not in rows):
                 continue
             candidates, method = _candidates(key, self.by_label, self.by_folded)
+            ambiguous = len({_compound_key(molecule) for molecule in candidates}) > 1
             for molecule in candidates:
                 links.append(
                     TableLink(
@@ -480,10 +482,43 @@ class _LabelIndex:
                         molecule_id=molecule.id,
                         label=key,
                         method=method,
-                        ambiguous=len(candidates) > 1,
+                        ambiguous=ambiguous,
                     )
                 )
         return links
+
+
+def _compound_key(molecule: ExtractedMolecule) -> str:
+    """What makes two structures the same compound: the InChIKey skeleton (stereo ignored).
+
+    A review often draws one drug several times, read with or without its stereocentres; those
+    copies share a label without making a row ambiguous.
+    """
+    return molecule.inchi_key[:14] if molecule.inchi_key else f"id:{molecule.id}"
+
+
+def _edit_distance(first: str, second: str, limit: int) -> int:
+    """Levenshtein distance, or ``limit + 1`` as soon as it is known to exceed *limit*."""
+    if abs(len(first) - len(second)) > limit:
+        return limit + 1
+    previous = list(range(len(second) + 1))
+    for i, char in enumerate(first, start=1):
+        current = [i]
+        for j, other in enumerate(second, start=1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1,
+                               previous[j - 1] + (char != other)))
+        if min(current) > limit:
+            return limit + 1
+        previous = current
+    return previous[-1]
+
+
+def _fuzzy_limit(label: str) -> int:
+    """Spelling differences tolerated for a name: none for short labels or compound numbers."""
+    letters = sum(char.isalpha() for char in label)
+    if len(label) < _FUZZY_MIN_LENGTH or letters < len(label) - 2:
+        return 0
+    return 2 if len(label) >= 12 else 1
 
 
 def _candidates(
@@ -491,7 +526,8 @@ def _candidates(
     by_label: dict[str, list[ExtractedMolecule]],
     by_folded: dict[str, list[ExtractedMolecule]],
 ) -> tuple[list[ExtractedMolecule], str]:
-    """Molecules matching *key* exactly, else by OCR-folded short label; and the method used."""
+    """Molecules matching *key*, and how: exactly, by OCR-folded short label, or by a name
+    spelt slightly differently ("Olmatinib" in a table, "Olmutinib" under the structure)."""
     found: list[ExtractedMolecule] = []
     for variant in _label_variants(key):
         for molecule in by_label.get(variant, []):
@@ -504,4 +540,13 @@ def _candidates(
             for molecule in by_folded.get(variant.translate(_OCR_FOLD), []):
                 if molecule not in found:
                     found.append(molecule)
-    return found, "ocr"
+    if found:
+        return found, "ocr"
+    for variant in _label_variants(key):
+        limit = _fuzzy_limit(variant)
+        if not limit:
+            continue
+        for label, molecules in by_label.items():
+            if _fuzzy_limit(label) and _edit_distance(variant, label, limit) <= limit:
+                found.extend(molecule for molecule in molecules if molecule not in found)
+    return found, "fuzzy"

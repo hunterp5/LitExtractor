@@ -319,6 +319,14 @@ class MainWindow(QMainWindow):
         self._figures_checkbox.setChecked(True)
         self._text_checkbox = QCheckBox("Names from Text")
         self._text_checkbox.setChecked(True)
+        self._names_checkbox = QCheckBox("Convert names to structures")
+        self._names_checkbox.setChecked(True)
+        self._names_checkbox.setToolTip(
+            "Turn systematic (IUPAC) names found in the text into structures with OPSIN. "
+            "Trade and code names such as \"Gefitinib\" stay names. Needs Java."
+        )
+        self._names_checkbox.setStyleSheet("margin-left: 20px;")
+        self._text_checkbox.toggled.connect(self._names_checkbox.setEnabled)
         self._corefs_checkbox = QCheckBox("Figure–label coreferences")
         self._corefs_checkbox.setChecked(True)
         self._reactions_checkbox = QCheckBox("Reactions")
@@ -333,6 +341,7 @@ class MainWindow(QMainWindow):
         for checkbox in (
             self._figures_checkbox,
             self._text_checkbox,
+            self._names_checkbox,
             self._corefs_checkbox,
             self._reactions_checkbox,
             self._tables_checkbox,
@@ -584,6 +593,7 @@ class MainWindow(QMainWindow):
             corefs=self._corefs_checkbox.isChecked(),
             reactions=self._reactions_checkbox.isChecked(),
             tables=self._tables_checkbox.isChecked(),
+            names_to_structures=self._names_checkbox.isChecked(),
             merge_by_inchi=self._merge_checkbox.isChecked(),
             first_page=first_page,
             num_pages=page_count if page_count > 0 else None,

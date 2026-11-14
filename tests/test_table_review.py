@@ -132,3 +132,20 @@ def test_shown_columns_toggle_and_are_named_by_table_and_header():
     assert shown_column_header(table, 1) == "Table 2 · IC50 (nM)"
     assert toggle_shown_column(result, "T1", 1) is False
     assert result.shown_table_columns == []
+
+
+def test_confirming_a_compound_drawn_twice_confirms_both_copies():
+    from litextractor.chemistry import enrich_molecule
+
+    first = enrich_molecule(ExtractedMolecule(smiles="CC(N)C(=O)O", identifier="5"))
+    second = enrich_molecule(ExtractedMolecule(smiles="C[C@H](N)C(=O)O", identifier="5"))
+    table = ExtractedTable(id="T1", title="", pages=[1], columns=["Compd", "IC50"],
+                           rows=[["5", "7"]])
+    result = ExtractionResult("d.pdf", [first, second], [], tables=[table])
+    result.table_links = link_table_rows([table], result.molecules)
+
+    assert row_status(row_links(result, "T1", 0)) is RowStatus.SUGGESTED
+    confirm_link(result, "T1", 0, first.id)
+
+    assert [link.confirmed for link in row_links(result, "T1", 0)] == [True, True]
+    assert molecule_value(result, "T1", 1, second.id) == "7"

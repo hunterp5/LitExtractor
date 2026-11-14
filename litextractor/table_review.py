@@ -59,12 +59,15 @@ def row_links(result: ExtractionResult, table_id: str, row_index: int) -> list[T
 
 
 def row_status(links: list[TableLink]) -> RowStatus:
-    """Classify a row by its links."""
+    """Classify a row by its links.
+
+    Several links that are not ambiguous are copies of one compound drawn more than once.
+    """
     if not links:
         return RowStatus.UNLINKED
     if any(link.confirmed for link in links):
         return RowStatus.CONFIRMED
-    if any(link.ambiguous for link in links) or len(links) > 1:
+    if any(link.ambiguous for link in links):
         return RowStatus.AMBIGUOUS
     return RowStatus.SUGGESTED
 
@@ -105,8 +108,19 @@ def _replace_row_links(
 def confirm_link(
     result: ExtractionResult, table_id: str, row_index: int, molecule_id: str
 ) -> None:
-    """Accept one suggested link of a row; any other candidates of the row are dropped."""
-    for link in row_links(result, table_id, row_index):
+    """Accept a row's suggested link to *molecule_id*.
+
+    When the row is ambiguous, the other candidates are dropped. When its links are copies of
+    one compound, they are all confirmed.
+    """
+    links = row_links(result, table_id, row_index)
+    if links and not any(link.ambiguous for link in links) and any(
+        link.molecule_id == molecule_id for link in links
+    ):
+        for link in links:
+            link.confirmed = True
+        return
+    for link in links:
         if link.molecule_id == molecule_id:
             link.confirmed, link.ambiguous = True, False
             _replace_row_links(result, table_id, row_index, [link])

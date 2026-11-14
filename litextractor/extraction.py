@@ -31,6 +31,7 @@ from .extraction_coreference import apply_coref_identifiers
 from .extraction_errors import ExtractionCancelled
 from .extraction_pdf import shift_result_pages, slice_pdf_pages
 from .extraction_results import (
+    collapse_name_mentions,
     molecules_from_figure_results,
     parse_page_number,
     molecules_from_text_results,
@@ -231,6 +232,7 @@ class _ExtractionRun:
 
             self._raise_if_cancelled()
             shift_result_pages(self.molecules, self.reactions, page_offset)
+            self.molecules = collapse_name_mentions(self.molecules)
             if options.merge_by_inchi:
                 self.molecules = merge_molecules_by_inchi(self.molecules)
             self.molecules = prioritize_molecules(self.molecules)
@@ -354,7 +356,17 @@ class _ExtractionRun:
                     self._pdf_for_models, **self._model_kwargs
                 )
             self.molecules.extend(molecules_from_text_results(text_pages))
-            self._apply_molecule_cap()
+        if self._options.names_to_structures:
+            self._run_name_stage()
+        self._apply_molecule_cap()
+
+    def _run_name_stage(self) -> None:
+        """Turn systematic names found in the text into structures (OPSIN)."""
+        from .names import structures_from_names
+
+        with self._stage("Converting chemical names to structures…", "Name-to-structure"):
+            converted = structures_from_names(self.molecules)
+            logger.info("OPSIN converted %d name(s) to structures", converted)
 
     def _run_coreference_stage(self) -> None:
         """Attach figure labels (such as compound numbers) to the figure molecules.

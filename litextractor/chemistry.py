@@ -67,6 +67,69 @@ def parse_mol(*, smiles: str = "", molfile: str = "") -> Chem.Mol | None:
     return rdkit_mol
 
 
+# Metals that occur as real counter-ions; any other lone metal beside an organic structure is
+# text read as an atom ("Pt" for "Pt", "Pd" from a reagent note).
+_COUNTER_ION_METALS = frozenset({"Li", "Na", "K", "Rb", "Cs", "Mg", "Ca", "Zn"})
+_MIN_MAIN_FRAGMENT_ATOMS = 6
+_MAX_STRAY_CARBONS = 4  # up to "Bu" read as butane
+
+
+def _is_stray_fragment(fragment: Chem.Mol) -> bool:
+    """True for a disconnected piece that is a misread, not part of the compound or its salt.
+
+    Stray pieces come from text near a structure read as atoms: "Et" as CC, "Pt" as a platinum
+    atom, an R-group as an attachment point (*). Halides, water and common counter-ions stay.
+    """
+    atoms = fragment.GetAtoms()
+    symbols = [atom.GetSymbol() for atom in atoms]
+    if any(atom.GetAtomicNum() == 0 for atom in atoms):
+        return True
+    if set(symbols) == {"C"} and len(symbols) <= _MAX_STRAY_CARBONS:
+        return True
+    if len(symbols) == 1:
+        atom = fragment.GetAtomWithIdx(0)
+        is_metal = atom.GetSymbol() not in _COUNTER_ION_METALS and atom.GetSymbol() not in {
+            "H", "B", "C", "N", "O", "F", "Si", "P", "S", "Cl", "Se", "Br", "I"}
+        return is_metal
+    return False
+
+
+def remove_stray_fragments(smiles: str = "", molfile: str = "") -> tuple[str, str, list[str]]:
+    """Drop misread pieces beside a structure read from an image.
+
+    Returns the cleaned ``(smiles, molfile, removed fragment SMILES)``; the inputs unchanged
+    when nothing is removed, the structure cannot be parsed, or it has no main fragment of at
+    least six heavy atoms to judge the others by.
+    """
+    rdkit_mol = parse_mol(smiles=smiles, molfile=molfile)
+    if rdkit_mol is None:
+        return smiles, molfile, []
+    try:
+        fragments = Chem.GetMolFrags(rdkit_mol, asMols=True, sanitizeFrags=False)
+        groups = Chem.GetMolFrags(rdkit_mol, asMols=False, sanitizeFrags=False)
+    except Exception:
+        logger.debug("Fragment split failed", exc_info=True)
+        return smiles, molfile, []
+    if len(fragments) < 2 or max(f.GetNumHeavyAtoms() for f in fragments) < _MIN_MAIN_FRAGMENT_ATOMS:
+        return smiles, molfile, []
+    stray = [i for i, fragment in enumerate(fragments) if _is_stray_fragment(fragment)]
+    if not stray or len(stray) == len(fragments):
+        return smiles, molfile, []
+    removed = [Chem.MolToSmiles(fragments[i]) for i in stray]
+    editable = Chem.RWMol(rdkit_mol)
+    for atom_index in sorted((a for i in stray for a in groups[i]), reverse=True):
+        editable.RemoveAtom(atom_index)
+    cleaned = editable.GetMol()
+    try:
+        cleaned.UpdatePropertyCache(strict=False)
+        new_molfile = Chem.MolToMolBlock(cleaned) if molfile else ""
+        new_smiles = Chem.MolToSmiles(cleaned)
+    except Exception:
+        logger.debug("Writing the cleaned structure failed", exc_info=True)
+        return smiles, molfile, []
+    return new_smiles, new_molfile, removed
+
+
 def enrich_molecule(molecule_record: ExtractedMolecule) -> ExtractedMolecule:
     """Fill formula, MW, InChIKey, and canonical SMILES/molfile from RDKit.
 

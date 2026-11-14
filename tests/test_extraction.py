@@ -895,3 +895,74 @@ def test_figures_are_detected_once_and_shared_with_the_coreference_stage():
     assert client.coreference_images == ["figure-a", "figure-b"]
     labels = {molecule.smiles: (molecule.identifier, molecule.page) for molecule in result.molecules}
     assert labels == {"CCO": ("7", 1), "CCN": ("8", 5)}
+
+
+@pytest.mark.parametrize(
+    ("read", "kept", "removed"),
+    [
+        ("CCCS(=O)(=O)NC1CC(N(C)c2ncnc3[nH]ccc23)C1.[Pt]",
+         "CCCS(=O)(=O)NC1CC(N(C)c2ncnc3[nH]ccc23)C1", ["[Pt]"]),
+        ("CC.CCCC.CCCS(=O)(=O)NC1CC(N(C)c2ncnc3[nH]ccc23)C1",
+         "CCCS(=O)(=O)NC1CC(N(C)c2ncnc3[nH]ccc23)C1", ["CC", "CCCC"]),
+        ("*=O.CCCS(=O)(=O)NC1CC(N(C)c2ncnc3[nH]ccc23)C1",
+         "CCCS(=O)(=O)NC1CC(N(C)c2ncnc3[nH]ccc23)C1", ["*=O"]),
+        ("Cl.CCN(CC)CCOC(=O)c1ccc(N)cc1", "Cl.CCN(CC)CCOC(=O)c1ccc(N)cc1", []),
+        ("O=C([O-])c1ccccc1.[Na+]", "O=C([O-])c1ccccc1.[Na+]", []),
+        ("N[Pt](N)(Cl)Cl", "N[Pt](N)(Cl)Cl", []),
+        ("CCO.CC", "CCO.CC", []),  # no main fragment to judge by
+    ],
+)
+def test_stray_fragments_read_from_nearby_text_are_removed_but_salts_kept(read, kept, removed):
+    from rdkit import Chem
+
+    from litextractor.chemistry import remove_stray_fragments
+
+    smiles, _molfile, dropped = remove_stray_fragments(read)
+    assert Chem.CanonSmiles(smiles) == Chem.CanonSmiles(kept) and dropped == removed
+
+
+def test_figure_molecules_note_removed_fragments_in_their_context():
+    molecules = molecules_from_figure_results(
+        [{"page": 0, "molecules": [{"smiles": "c1ccccc1CCN.[Pt]", "bbox": (0, 0, 1, 1)}]}]
+    )
+
+    (molecule,) = molecules
+    assert "[Pt]" not in molecule.smiles
+    assert molecule.context == "Removed stray fragments read beside the structure: [Pt]"
+
+
+def test_name_labels_in_the_shape_the_model_returns_them_are_read():
+    text = "Gefitinib and ATP bind; saponins do not."
+    labels = [("TRIVIAL", [0, 9]), ("ABBREVIATION", [14, 17]), ("FAMILY", [24, 32])]
+
+    molecules = molecules_from_text_results([{"page": 2, "molecules": [
+        {"text": text, "labels": labels}]}])
+
+    assert [m.identifier for m in molecules] == ["Gefitinib"]
+
+
+def test_repeated_name_mentions_collapse_and_names_of_drawn_structures_are_dropped():
+    from litextractor.extraction_results import collapse_name_mentions
+
+    drawn = ExtractedMolecule(smiles="CCO", identifier="Gefitinib", page=3)
+    mentions = [ExtractedMolecule(smiles="", source="text", identifier=name, page=page)
+                for name, page in [("gefitinib", 1), ("Osimertinib", 2), ("osimertinib", 5),
+                                   ("Osimertinib", 2)]]
+
+    kept = collapse_name_mentions([drawn, *mentions])
+
+    assert [(m.identifier, m.page_numbers) for m in kept] == [
+        ("Gefitinib", (3,)), ("Osimertinib", (2, 5))]
+
+
+@pytest.mark.parametrize(
+    ("span", "names"),
+    [("Avitinib Avitinib", ["Avitinib"]), ("Brigatinib Afatinib", ["Brigatinib", "Afatinib"]),
+     ("Cucurbitacin B", ["Cucurbitacin B"]), ("Astragaloside IV", ["Astragaloside IV"]),
+     ("caffeic acid", ["caffeic acid"]), ("4.6.6", []), ("9-heterocyclyl", []),
+     ("N-(3-chloro-4-fluorophenyl)quinazolin-4-amine", ["N-(3-chloro-4-fluorophenyl)quinazolin-4-amine"])],
+)
+def test_run_together_name_spans_are_split_and_non_names_dropped(span, names):
+    from litextractor.extraction_results import split_name_span
+
+    assert split_name_span(span) == names

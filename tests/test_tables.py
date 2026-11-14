@@ -275,3 +275,30 @@ def test_tables_can_be_turned_off_and_extracted_without_figures():
     assert no_tables.tables == [] and no_tables.table_links == []
     assert len(tables_only.tables) == 1 and tables_only.molecules == []
     assert client.detections == 2
+
+
+def test_copies_of_one_drug_are_one_match_but_different_structures_stay_ambiguous():
+    from litextractor.chemistry import enrich_molecule
+
+    drawn = enrich_molecule(ExtractedMolecule(smiles="C[C@H](N)C(=O)O", identifier="Alanine"))
+    no_stereo = enrich_molecule(ExtractedMolecule(smiles="CC(N)C(=O)O", identifier="alanine"))
+    misread = enrich_molecule(ExtractedMolecule(smiles="CC(O)C(=O)O", identifier="Lactate"))
+    other = enrich_molecule(ExtractedMolecule(smiles="OCC(N)C(=O)O", identifier="Lactate"))
+    table = _table(["Drug", "Use"], [["Alanine", "a"], ["Lactate", "b"]])
+
+    links = link_table_rows([table], [drawn, no_stereo, misread, other])
+
+    assert [(l.row_index, l.ambiguous) for l in links] == [
+        (0, False), (0, False), (1, True), (1, True)]
+
+
+def test_names_spelt_slightly_differently_match_as_fuzzy_but_short_labels_never():
+    olmutinib = ExtractedMolecule(smiles="C", identifier="Olmutinib")
+    icotinib = ExtractedMolecule(smiles="N", identifier="Icotinib")
+    twelve = ExtractedMolecule(smiles="O", identifier="12a")
+    table = _table(["Drug"], [["Olmatinib"], ["Avitinib"], ["12b"]])
+
+    links = link_table_rows([table], [olmutinib, icotinib, twelve])
+
+    assert [(l.row_index, l.molecule_id, l.method) for l in links] == [
+        (0, olmutinib.id, "fuzzy")]

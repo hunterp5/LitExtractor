@@ -117,6 +117,11 @@ def _label_best_overlapping_molecule(
     label = join_text(label_box.get("text") or label_box.get("category") or "")
     if not label or label.startswith("["):
         return
+    from .text_labels import clean_label
+
+    label = clean_label(label)
+    if not label:
+        return
     molecule_bbox = parse_bbox(molecule_box.get("bbox"))
     best_match: ExtractedMolecule | None = None
     best_overlap = MIN_BOX_OVERLAP

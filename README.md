@@ -10,6 +10,7 @@ LitExtractor is a desktop application for finding chemical structures and relate
 - Select a molecule to view its structure, patent crop on a white canvas, and metadata in a fixed-width preview pane.
 - Read data tables (activity, yield, properties) and match their rows to structures by label, with a Tables tab to confirm, choose or correct each match.
 - Extract several PDFs, or a whole folder, in one go; each gets its own result tab.
+- Turn systematic chemical names in the text into structures with OPSIN (trade names such as "Gefitinib" stay names).
 - Merge duplicate molecules by InChIKey.
 - Export molecule data to CSV, SDF, or SMILES, and table data as a long CSV or as each table as printed.
 - Choose CPU or CUDA for model inference. CPU is available immediately; CUDA detection runs in the background after the window opens.
@@ -22,7 +23,8 @@ OpenChemIE models are large and can be slow on CPU. Model weights may be downloa
 
 - Python 3.10 or 3.11 (the versions currently documented and tested for this project).
 - A compatible PyTorch 2.x and torchvision installation. CUDA is optional.
-- Poppler tools (`pdfinfo` and `pdftoppm`) available on `PATH` for PDF page rendering through `pdf2image`.
+- Poppler tools (`pdfinfo` and `pdftoppm`) for PDF page rendering through `pdf2image`.
+- Java 8 or newer, optional, to turn systematic names in the text into structures with OPSIN.
 - Network access on the first model-backed run unless the required model weights are already cached.
 
 ## Installation
@@ -60,7 +62,17 @@ These two stages are intentional: the pinned OpenChemIE revision declares `torch
 
 ### 4. Install Poppler
 
-Install Poppler using your platform's package manager or a trusted platform build, then make sure `pdfinfo` and `pdftoppm` are on `PATH`. See the [`pdf2image` installation guide](https://pdf2image.readthedocs.io/en/latest/installation.html) for platform-specific instructions.
+Install Poppler using your platform's package manager or a trusted platform build. See the [`pdf2image` installation guide](https://pdf2image.readthedocs.io/en/latest/installation.html) for platform-specific instructions. The app finds Poppler on `PATH`, in its Python environment (including the conda environment a venv was created from, even when not activated) and in Homebrew's folders.
+
+### 5. Install Java (optional)
+
+OPSIN, which turns systematic names such as "N-(3-chloro-4-fluorophenyl)-7-methoxy-…quinazolin-4-amine" into structures, runs on Java. In a conda environment:
+
+```bash
+conda install -c conda-forge openjdk
+```
+
+Homebrew's `openjdk` or any Java 8+ install also works; the app looks in the Python environment, `JAVA_HOME`, Homebrew's folders and `PATH`. Without Java, names found in the text are kept as names and a warning says why.
 
 ## Run
 
@@ -106,6 +118,10 @@ Table data is exported three ways from the **File** menu:
 - **Export tables as printed**: one CSV per table in a chosen folder, every row included, with the linked structure, its SMILES and the link status in front.
 
 Each structure is read from exactly the box the molecule detector found; padding that box pulled neighbouring bonds and labels into the crop and made readings worse. Figure regions found by layout detection are widened by a fixed 8% before the figure is cropped, so structures at a figure's edge are not cut off. Table regions are not widened.
+
+Structure labels are taken from the text printed next to each structure. Activity values ("FAK: IC50 = 4.3 nM"), reaction conditions, captions, remarks and panel letters ("a)") are not used as labels. Small disconnected pieces that come from nearby text being read as atoms (a stray "CC" from "Et", a lone platinum atom from "Pt", an attachment point) are removed from figure structures, and the Context column says what was removed; salts and counter-ions are kept.
+
+**Names from Text** lists the compounds the running text names. A name mentioned many times is one row with all its pages, and a name that already labels a drawn structure gets no separate row. With **Convert names to structures** on, systematic names get a structure from OPSIN (source "text (name)").
 
 The **Confidence** column shows MolScribe's confidence (0–1) in each structure it read. Values below 0.5 are marked "(low)", shown in amber, and ranked after confident results; in testing these were mostly non-structures (protein images, numbered lists) or misreads, so check the patent crop before relying on them. Confidence is included in CSV and SDF exports.
 

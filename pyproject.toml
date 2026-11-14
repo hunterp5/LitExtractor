@@ -24,6 +24,8 @@ dependencies = [
     "layoutparser[effdet]==0.3.4",
     "iopath==0.1.10",
     "pdf2image",
+    # Bundles the OPSIN jar (MIT) for name-to-structure; OPSIN itself needs Java.
+    "py2opsin==1.2.0",
     "matplotlib",
     "seqeval",
     "easyocr",

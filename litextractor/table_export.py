@@ -86,7 +86,8 @@ def link_status_text(links: list[TableLink]) -> str:
     if status is RowStatus.CONFIRMED:
         return "linked by hand" if links[0].method == "manual" else "confirmed"
     if status is RowStatus.SUGGESTED:
-        return "suggested (OCR match)" if links[0].method == "ocr" else "suggested"
+        notes = {"ocr": " (OCR match)", "fuzzy": " (spelling differs)"}
+        return "suggested" + notes.get(links[0].method, "")
     if status is RowStatus.AMBIGUOUS:
         return "ambiguous"
     return "unlinked"

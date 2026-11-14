@@ -94,9 +94,14 @@ def link_cell_text(result: ExtractionResult, links: list[TableLink]) -> str:
         return f"{len(links)} matches: {names}"
     link = next((link for link in links if link.confirmed), links[0])
     name = molecule_display_name(molecule_by_id(result, link.molecule_id))
+    if len(links) > 1:
+        name += f" (drawn {len(links)}×)"
     if status is RowStatus.CONFIRMED:
         return f"✓ {name}"
-    return f"{name} (OCR match)" if link.method == "ocr" else name
+    return name + _METHOD_NOTES.get(link.method, "")
+
+
+_METHOD_NOTES = {"ocr": " (OCR match)", "fuzzy": " (spelling differs)"}
 
 
 def _link_tooltip(links: list[TableLink]) -> str:
@@ -108,10 +113,15 @@ def _link_tooltip(links: list[TableLink]) -> str:
     if status is RowStatus.CONFIRMED:
         method = "linked by hand" if links[0].method == "manual" else "confirmed"
         return f"Structure {method}."
+    copies = (f" The same compound is drawn {len(links)} times; all copies get this row."
+              if len(links) > 1 else "")
     if links[0].method == "ocr":
         return ("Matched once common OCR confusions (1/I/l, 0/O) were ignored. "
-                "Right-click to confirm.")
-    return "Suggested by matching the label. Right-click to confirm."
+                "Right-click to confirm." + copies)
+    if links[0].method == "fuzzy":
+        return ("The name under the structure is spelt slightly differently. "
+                "Right-click to confirm." + copies)
+    return "Suggested by matching the label. Right-click to confirm." + copies
 
 
 class TableGridModel(QAbstractTableModel):
@@ -204,7 +214,7 @@ class TableGridModel(QAbstractTableModel):
             return _CONFIRMED_COLOR
         if status is RowStatus.UNLINKED:
             return _UNLINKED_COLOR
-        if status is RowStatus.AMBIGUOUS or links[0].method == "ocr":
+        if status is RowStatus.AMBIGUOUS or links[0].method in ("ocr", "fuzzy"):
             return _ATTENTION_COLOR
         return QColor()
 

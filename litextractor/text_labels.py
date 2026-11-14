@@ -49,8 +49,26 @@ Box = tuple[float, float, float, float]  # x1, y1, x2, y2 with y1 < y2 (PDF poin
 TABLE_PAD = 20.0
 
 _CAPTION = re.compile(
-    r"^(?:(?:fig(?:ure)?|scheme|table|chart)\.?\s*\d|\d+(?:\.\d+)+\.?\s)", re.IGNORECASE
+    r"^(?:(?:fig(?:ure)?|scheme|table|chart)[.:]?\s*\d|\d+(?:\.\d+)+\.?\s)", re.IGNORECASE
 )
+# Text printed under structures that is data or commentary, not a name: activity values
+# ("FAK: IC50 = 4.3 nM", OCR'd as "ICs0" or "ICso"), amounts and yields, reaction conditions.
+_MEASUREMENT_TEXT = re.compile(
+    r"=|\b(?:IC|EC|GI|CC|LD|ED|ID)\s*[s5][0o]\b|\bK[id]\b"
+    r"|\d\s*(?:[nuμµp]M|mM|%|mg|equiv|h)\b|\b(?:yield|reflux|r\.?t\.?|overnight|equiv)\b",
+    re.IGNORECASE,
+)
+_PROSE_WORDS = frozenset(
+    "is are was were be with by of the in for and or more less to from as at than via into on "
+    "inhibitor inhibitors blocker blockers synthesis lead dual series scaffold core warhead "
+    "potent selective analogue analogues analog analogs derivative derivatives trial trials"
+    .split()
+)
+_DECIMAL = re.compile(r"^\d+\.\d+$")
+_PANEL_LETTER = re.compile(r"^\(?[A-Za-z]\)$|^\([A-Za-z]\)?$")
+# "42: R = Me" or "S12, R = H": a compound number (at most one letter before it, so formulas
+# such as "PPh3," are not taken for one) heading a description.
+_LEADING_NUMBER = re.compile(r"^([A-Z]?\d{1,4}[a-z]?)\s*[:,]")
 _ATOM_TEXT = re.compile(
     r"^(?:H\d?)?(?:C|N|O|S|P|F|Cl|Br|I|B|Si|Se|Na|K|Li|Mg|Zn|Cu|Pd|Pt|Sn)(?:H\d?)?\d*[+-]?$"
     r"|^(?:CF3|OCF3|CN|NC|OMe|MeO|OEt|EtO|Me|Et|iPr|tBu|Ph|Bn|Boc|Ts|Ac|NO2|CO2H|COOH|R\d*'*|"
@@ -174,14 +192,40 @@ def _center(box: Box) -> tuple[float, float]:
 
 
 def _is_label_text(text: str) -> bool:
-    """True for short text that could name a structure (not a caption, sentence or atom)."""
+    """True for short text that could name a structure.
+
+    Not a caption, sentence, atom label, activity value, reaction condition or remark.
+    """
+    words = text.split()
     return (
-        len(text) <= _MAX_LABEL_CHARS
-        and len(text.split()) <= _MAX_LABEL_WORDS
+        0 < len(text) <= _MAX_LABEL_CHARS
+        and len(words) <= _MAX_LABEL_WORDS
         and not _CAPTION.match(text)
-        and not _ATOM_TEXT.match(text)
-        and not text.endswith((",", ";"))
+        and (text.isdigit() or not _ATOM_TEXT.match(text))
+        and not _MEASUREMENT_TEXT.search(text)
+        and not _DECIMAL.match(text)
+        and not _PANEL_LETTER.match(text)
+        and ", " not in text
+        and not text.endswith((",", ";", ":"))
+        and not (len(words) > 1 and text.endswith("."))
+        and not any(word.lower().strip("().,:") in _PROSE_WORDS for word in words)
     )
+
+
+def clean_label(text: str) -> str:
+    """The structure label within text read next to a structure, or "" if there is none.
+
+    OCR and the coreference model return everything in a label box joined by "; ", e.g.
+    "42: R = Me; FAK:; =; N.T." or "24; FAK:; =; 12 nM". The first part that is a label is
+    kept; a compound number heading a part ("42: R = Me") is taken on its own.
+    """
+    for part in (piece.strip() for piece in text.split(";")):
+        leading = _LEADING_NUMBER.match(part)
+        if leading:
+            return leading.group(1)
+        if _is_label_text(part):
+            return part
+    return ""
 
 
 def labels_below(molecule_boxes: list[Box], lines: list[TextLine], region: Box | None) -> list[str]:

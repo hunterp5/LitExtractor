@@ -196,8 +196,51 @@ def molecules_from_figure_results(figures: list[dict]) -> list[ExtractedMolecule
                 figure_index=figure_index,
                 crop_png=image_to_png_bytes(crop_image),
             )
+            _drop_misread_fragments(molecule)
             molecules.append(enrich_molecule(molecule))
     return molecules
+
+
+def _drop_misread_fragments(molecule: ExtractedMolecule) -> None:
+    """Remove stray pieces read from text beside the structure, noting them in the context."""
+    from .chemistry import remove_stray_fragments
+
+    smiles, molfile, removed = remove_stray_fragments(molecule.smiles, molecule.molfile)
+    if removed:
+        molecule.smiles, molecule.molfile = smiles, molfile
+        note = "Removed stray fragments read beside the structure: " + ", ".join(removed)
+        molecule.context = f"{note}. {molecule.context}".strip() if molecule.context else note
+
+
+#: Chemical-name categories that name one compound. Abbreviations ("ATP", "PPI"), families
+#: ("saponins"), formulas and lists ("cucurbitacin B and D") are left out.
+COMPOUND_NAME_TYPES = frozenset({"TRIVIAL", "SYSTEMATIC", "IDENTIFIER"})
+_KNOWN_NAME_TYPES = COMPOUND_NAME_TYPES | {"ABBREVIATION", "FAMILY", "FORMULA", "MULTIPLE"}
+
+
+def _names_a_compound(label: Any) -> bool:
+    """False for labels of a category that does not name one compound."""
+    kind = label[0] if isinstance(label, (list, tuple)) and label else None
+    return not (isinstance(kind, str) and kind in _KNOWN_NAME_TYPES
+                and kind not in COMPOUND_NAME_TYPES)
+
+
+def split_name_span(entity: str) -> list[str]:
+    """The compound names in one name span; [] when it names none.
+
+    Text read from tables and figure labels runs cells together, so the name model returns
+    spans such as "Avitinib Avitinib" or "Brigatinib Afatinib": several capitalized one-word
+    names, split apart here and de-duplicated. Spans without letters ("4.6.6", a section
+    number) and substituent names ("9-heterocyclyl") are dropped.
+    """
+    entity = " ".join(entity.split())
+    if not any(char.isalpha() for char in entity) or entity.lower().endswith("yl"):
+        return []
+    words = entity.split()
+    if len(words) > 1 and all(word[:1].isupper() and word.isalpha() and len(word) >= 5
+                              for word in words):
+        return list(dict.fromkeys(words))
+    return [entity]
 
 
 def molecules_from_text_results(pages: list[dict]) -> list[ExtractedMolecule]:
@@ -212,36 +255,44 @@ def molecules_from_text_results(pages: list[dict]) -> list[ExtractedMolecule]:
                 continue
             paragraph_text = str(paragraph.get("text") or "")
             for label in paragraph.get("labels") or []:
-                entity, _start, _end = unpack_label(label, paragraph_text)
-                if not entity:
+                if not _names_a_compound(label):
                     continue
-                molecule = ExtractedMolecule(
-                    smiles=entity if parse_mol(smiles=entity) is not None else "",
-                    source="text",
-                    page=page,
-                    identifier=entity,
-                    context=paragraph_text,
-                )
-                if molecule.smiles:
-                    enrich_molecule(molecule)
-                else:
-                    molecule.context = entity + (
-                        f" — {paragraph_text}" if paragraph_text else ""
-                    )
-                molecules.append(molecule)
+                entity, _start, _end = unpack_label(label, paragraph_text)
+                for name in split_name_span(entity):
+                    molecules.append(_text_molecule(name, page, paragraph_text))
     return molecules
 
 
-def unpack_label(label: Any, text: str) -> tuple[str, int, int]:
-    """Read an ``(entity_or_type, start, end)`` label and return ``(span_text, start, end)``.
+def _text_molecule(entity: str, page: int | None, paragraph_text: str) -> ExtractedMolecule:
+    """A record for one name found in the text, with a structure when the name is SMILES."""
+    molecule = ExtractedMolecule(
+        smiles=entity if parse_mol(smiles=entity) is not None else "",
+        source="text",
+        page=page,
+        identifier=entity,
+        context=paragraph_text,
+    )
+    if molecule.smiles:
+        enrich_molecule(molecule)
+    else:
+        molecule.context = entity + (f" — {paragraph_text}" if paragraph_text else "")
+    return molecule
 
-    The text slice is preferred; the label's first element is the fallback when the offsets do
-    not fit ``text``. Malformed labels yield ``("", 0, 0)``.
+
+def unpack_label(label: Any, text: str) -> tuple[str, int, int]:
+    """Read a label and return ``(span_text, start, end)``.
+
+    Labels come as ``(entity_or_type, start, end)`` (as documented) or, from the chemical-name
+    model in practice, as ``(type, [start, end])``. The text slice is preferred; the label's
+    first element is the fallback when the offsets do not fit ``text``. Malformed labels yield
+    ``("", 0, 0)``.
     """
     if not isinstance(label, (list, tuple)):
         return "", 0, 0
     try:
         label_fields = list(label)
+        if len(label_fields) == 2 and isinstance(label_fields[1], (list, tuple)):
+            label_fields = [label_fields[0], *label_fields[1]]
         if len(label_fields) < 3:
             return "", 0, 0
         first_field, start, end = label_fields[0], int(label_fields[1]), int(label_fields[2])
@@ -351,3 +402,38 @@ def _text_reaction_role_entries(reaction: dict, role_key: str) -> list[str]:
         elif isinstance(item, str) and item.strip():
             entries.append(item.strip())
     return entries
+
+
+def collapse_name_mentions(molecules: list[ExtractedMolecule]) -> list[ExtractedMolecule]:
+    """Keep one record per chemical name mentioned in the text without a structure.
+
+    A review names "gefitinib" dozens of times; the mentions become one record listing every
+    page. A name that already labels a structure (drawn, or converted from a name) adds nothing
+    and is dropped. Structures, and names with one, are kept as they are.
+    """
+    from .tables import normalize_label
+
+    labelled = {
+        normalize_label(part)
+        for molecule in molecules
+        if molecule.smiles or molecule.molfile
+        for part in (molecule.identifier or "").split(";")
+        if part.strip()
+    }
+    kept: list[ExtractedMolecule] = []
+    by_name: dict[str, ExtractedMolecule] = {}
+    for molecule in molecules:
+        if molecule.smiles or molecule.molfile or not molecule.identifier:
+            kept.append(molecule)
+            continue
+        name = normalize_label(molecule.identifier)
+        if name in labelled:
+            continue
+        first = by_name.get(name)
+        if first is None:
+            by_name[name] = molecule
+            kept.append(molecule)
+            continue
+        first.pages = sorted(set(first.page_numbers) | set(molecule.page_numbers))
+        first.page = first.pages[0] if first.pages else first.page
+    return kept

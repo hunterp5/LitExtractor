@@ -38,6 +38,8 @@ class ExtractOptions:
         reactions: Also extract reactions.
         tables: Keep the data tables found while detecting figures and link their rows to
             molecules by compound label or name.
+        names_to_structures: Turn systematic names found in the text into structures with
+            OPSIN (needs Java). Only used with ``text``.
         merge_by_inchi: Merge molecules that share an InChIKey into one record.
         first_page: 1-based first page to process.
         num_pages: Number of pages to process; ``None`` or ``0`` means all remaining pages.
@@ -51,6 +53,7 @@ class ExtractOptions:
     corefs: bool = True
     reactions: bool = False
     tables: bool = True
+    names_to_structures: bool = True
     merge_by_inchi: bool = True
     first_page: int = 1
     num_pages: int | None = None

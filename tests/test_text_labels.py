@@ -166,3 +166,34 @@ def test_without_a_reader_or_placement_the_coreference_label_is_kept(page_lines)
                                     "doc.pdf", [np.zeros((300, 200))], None)
 
     assert count == 0 and placed.identifier == unplaced.identifier == "Ia"
+
+
+@pytest.mark.parametrize(
+    ("read", "label"),
+    [
+        ("12a", "12a"), ("Compound A", "Compound A"), ("3", "3"), ("Defactinib (VS-6063)",
+                                                                   "Defactinib (VS-6063)"),
+        # what the coreference model returns: every text in the label box, joined by "; "
+        ("42: R = Me; FAK:; =; N.T.; HepG2:; =; 9.35 uM", "42"),
+        ("24; FAK:; =; 12 nM; in rat: 10 mg/kg PO dose", "24"),
+        ("Pacritinib; Crystal Structures; Pacritinib (M)", "Pacritinib"),
+        ("8; FAK:", "8"),
+        # data, conditions, captions and remarks printed under structures
+        ("FAK: IC50 = 4.34 nM", ""), ("FAK: ICs0 = 22 nM", ""), ("206 nM", ""), ("28.6", ""),
+        ("95% yield", ""), ("DIPEA, n-BuOH", ""), ("PPh3, THF/H2O, rt, 8 h", ""),
+        ("The synthesis of compound 18.", ""), ("N-Me piperazinyl is more potent", ""),
+        ("Lead compound", ""), ("A)", ""), ("(b)", ""), ("Fig: 14; The synthesis of 32.", ""),
+    ],
+)
+def test_labels_are_kept_and_data_or_remarks_dropped(read, label):
+    from litextractor.text_labels import clean_label
+
+    assert clean_label(read) == label
+
+
+def test_an_activity_line_below_a_structure_is_skipped_for_the_label_beneath_it():
+    structure = (100, 300, 200, 400)
+    lines = [TextLine((120, 285, 180, 295), "FAK: IC50 = 4.3 nM"),
+             TextLine((140, 270, 160, 280), "27")]
+
+    assert labels_below([structure], lines, None) == ["27"]
