@@ -134,6 +134,16 @@ def _build_detail_card(title: str) -> tuple[QFrame, QVBoxLayout]:
     return card, card_layout
 
 
+def _sdf_success_message(path: str, written: int | None, total: int) -> str:
+    """Status text for an SDF export, noting records RDKit could not write."""
+    written = written or 0
+    message = f"Wrote {written} molecule(s) to {Path(path).name}"
+    skipped = total - written
+    if skipped > 0:
+        message += f"; skipped {skipped} without a writable structure"
+    return message
+
+
 class MainWindow(QMainWindow):
     """Patent extraction workspace: options on the left, results in the center, details right."""
 
@@ -656,12 +666,12 @@ class MainWindow(QMainWindow):
         dialog_title: str,
         file_filter: str,
         write_file: Callable[[str, list[ExtractedMolecule]], int | None],
-        success_message: Callable[[str, int | None], str],
+        success_message: Callable[[str, int | None, int], str],
     ) -> None:
         """Ask for a destination and export the active tab's molecules with ``write_file``.
 
-        On success the destination folder is remembered and ``success_message`` is shown in the
-        status label; on failure the error is shown and the remembered folder is unchanged.
+        On success the destination folder is remembered and ``success_message(path, result,
+        total)`` is shown in the status label; on failure the error is shown and the remembered folder is unchanged.
         """
         molecules = self._molecules_to_export()
         if molecules is None:
@@ -680,7 +690,7 @@ class MainWindow(QMainWindow):
             )
             return
         self._last_dir = str(Path(path).parent)
-        self.status_label.setText(success_message(path, write_result))
+        self.status_label.setText(success_message(path, write_result, len(molecules)))
 
     def export_csv(self) -> None:
         """Export the active tab's molecules as CSV."""
@@ -688,7 +698,7 @@ class MainWindow(QMainWindow):
             "Export CSV",
             "CSV files (*.csv)",
             write_csv,
-            lambda path, _result: f"Wrote {Path(path).name}",
+            lambda path, _result, _total: f"Wrote {Path(path).name}",
         )
 
     def export_sdf(self) -> None:
@@ -697,7 +707,7 @@ class MainWindow(QMainWindow):
             "Export SDF",
             "SDF files (*.sdf)",
             write_sdf,
-            lambda path, count: f"Wrote {count or 0} molecule(s) to {Path(path).name}",
+            _sdf_success_message,
         )
 
     def export_smi(self) -> None:
@@ -706,5 +716,5 @@ class MainWindow(QMainWindow):
             "Export SMILES",
             "SMILES files (*.smi *.txt)",
             write_smi,
-            lambda path, _result: f"Wrote {Path(path).name}",
+            lambda path, _result, _total: f"Wrote {Path(path).name}",
         )

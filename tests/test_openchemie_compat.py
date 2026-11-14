@@ -224,3 +224,60 @@ def test_prepare_openchemie_imports_applies_patches_in_order(monkeypatch):
     openchemie_compat.prepare_openchemie_imports()
 
     assert calls == list(ordered)
+
+
+def test_batched_rxnscribe_predictions_use_their_own_images(monkeypatch):
+    import torch
+
+    rxnscribe_interface = pytest.importorskip("rxnscribe.interface")
+    from litextractor import compat_batching
+
+    seen: list[tuple[str, object]] = []
+
+    class Tokenizer:
+        max_len = 4
+
+        def sequence_to_data(self, seqs, scores, scale):
+            del seqs, scores, scale
+            return {"bboxes": [], "corefs": []}
+
+    class FakeDetector:
+        device = torch.device("cpu")
+        tokenizer = {"bbox": Tokenizer(), "coref": Tokenizer(), "reaction": Tokenizer()}
+        molscribe = None
+        ocr_model = None
+
+        def transform(self, image):
+            del image
+            return torch.zeros(1), {"scale": 1.0}
+
+        def model(self, images, max_len):
+            del max_len
+            count = images.shape[0]
+            return torch.zeros(count, 1), torch.zeros(count, 1)
+
+    def record(kind):
+        def _postprocess(raw, image=None, **kwargs):
+            del kwargs
+            seen.append((kind, image))
+            return raw
+
+        return _postprocess
+
+    monkeypatch.setattr(rxnscribe_interface, "postprocess_coref_results", record("coref"))
+    monkeypatch.setattr(rxnscribe_interface, "postprocess_bboxes", record("bbox"))
+    monkeypatch.setattr(rxnscribe_interface, "postprocess_reactions", record("reaction"))
+    for name in ("MolDetect", "RxnScribe"):
+        cls = getattr(rxnscribe_interface, name)
+        monkeypatch.setattr(cls, "predict_images", cls.predict_images)
+    compat_batching.patch_rxnscribe_batch_images()
+
+    images = [f"image-{index}" for index in range(5)]
+    detector = FakeDetector()
+    rxnscribe_interface.MolDetect.predict_images(detector, images, batch_size=2, coref=True)
+    rxnscribe_interface.MolDetect.predict_images(detector, images, batch_size=2)
+    rxnscribe_interface.RxnScribe.predict_images(detector, images, batch_size=2)
+
+    for kind in ("coref", "bbox", "reaction"):
+        assert [image for seen_kind, image in seen if seen_kind == kind] == images
+

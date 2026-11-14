@@ -26,13 +26,14 @@ from typing import Any, Callable, Protocol
 
 from .cancellation import cancel_on_model_forward
 from .chemistry import prioritize_molecules
-from .compat_checkpoint import openchemie_checkpoint_loads
 from .crop_context import use_molecule_crop_margin
+from .compat_checkpoint import openchemie_checkpoint_loads
 from .extraction_coreference import apply_coref_identifiers
 from .extraction_errors import ExtractionCancelled
 from .extraction_pdf import shift_result_pages, slice_pdf_pages
 from .extraction_results import (
     molecules_from_figure_results,
+    parse_page_number,
     molecules_from_text_results,
     reactions_from_pdf_results,
 )
@@ -48,22 +49,25 @@ ProgressCallback = Callable[[str], None]
 class OpenChemIEClient(Protocol):
     """Subset of OpenChemIE used by this app (allows fakes in tests).
 
-    OpenChemIE figure, coreference, and figure-reaction page indexes are zero-based;
-    the extraction pipeline converts them to one-based pages at the API boundary.
+    OpenChemIE figure and figure-reaction page indexes are zero-based; the extraction pipeline
+    converts them to one-based pages at the API boundary. Figures are detected once per run;
+    the per-figure methods return one result per input image, in input order.
     """
 
-    def extract_molecules_from_figures_in_pdf(self, pdf: str, **kwargs: Any) -> list[dict]:
-        """Detect and read molecule structures in the figures of ``pdf``."""
+    def extract_figures_from_pdf(self, pdf: str, **kwargs: Any) -> list[dict]:
+        """Render ``pdf`` and detect its figures (``{"figure": {"image"}, "page"}`` dicts)."""
+        ...
+
+    def extract_molecules_from_figures(self, figures: list, **kwargs: Any) -> list[dict]:
+        """Detect and read molecule structures in each figure image."""
         ...
 
     def extract_molecules_from_text_in_pdf(self, pdf: str, **kwargs: Any) -> list[dict]:
         """Find chemical names in the running text of ``pdf``."""
         ...
 
-    def extract_molecule_corefs_from_figures_in_pdf(
-        self, pdf: str, **kwargs: Any
-    ) -> list[dict]:
-        """Pair detected figure molecules with their text labels in ``pdf``."""
+    def extract_molecule_corefs_from_figures(self, figures: list, **kwargs: Any) -> list[dict]:
+        """Pair detected molecules with their text labels in each figure image."""
         ...
 
     def extract_reactions_from_pdf(self, pdf: str, **kwargs: Any) -> dict:
@@ -113,6 +117,22 @@ def merge_molecules_by_inchi(molecules: list[ExtractedMolecule]) -> list[Extract
     return merged
 
 
+def _figure_images_and_pages(figures: Any) -> tuple[list[Any], list[int | None]]:
+    """Return the images of detected figures and their one-based pages, skipping bad entries."""
+    images: list[Any] = []
+    pages: list[int | None] = []
+    for figure in figures or []:
+        figure_block = figure.get("figure") if isinstance(figure, dict) else None
+        image = figure_block.get("image") if isinstance(figure_block, dict) else None
+        if image is None:
+            logger.warning("Ignoring detected figure without an image")
+            continue
+        page = parse_page_number(figure.get("page"))
+        images.append(image)
+        pages.append(None if page is None else page + 1)
+    return images, pages
+
+
 def _one_based_pages(figure_results: Any) -> Any:
     """Convert OpenChemIE's zero-based page indexes to one-based pages, in place."""
     for figure in figure_results or []:
@@ -149,8 +169,10 @@ class _ExtractionRun:
         self._client = client
         self._progress_callback = progress_callback
         self._should_cancel = should_cancel
+        self._page_kwargs: dict[str, Any] = {}
         self._model_kwargs: dict[str, Any] = {"batch_size": options.batch_size}
         self._pdf_for_models = pdf_path
+        self._figure_images: list[Any] = []
         self.molecules: list[ExtractedMolecule] = []
         self.reactions: list[ExtractedReaction] = []
         self.warnings: list[str] = []
@@ -168,7 +190,7 @@ class _ExtractionRun:
             if options.text and not self._molecule_cap_reached():
                 self._run_text_stage()
             if options.corefs and any(
-                molecule.source == "figure" for molecule in self.molecules
+                molecule.figure_index is not None for molecule in self.molecules
             ):
                 self._run_coreference_stage()
             if options.reactions:
@@ -206,7 +228,8 @@ class _ExtractionRun:
             self._client = load_openchemie(self._options.device)
             self._raise_if_cancelled()
         if self._options.num_pages and page_offset == 0:
-            self._model_kwargs["num_pages"] = self._options.num_pages
+            self._page_kwargs["num_pages"] = self._options.num_pages
+        self._model_kwargs.update(self._page_kwargs)
         text_reactions_supported = getattr(
             self._client, "_litextractor_text_reactions_supported", True
         )
@@ -217,15 +240,30 @@ class _ExtractionRun:
             )
 
     def _run_figure_stage(self) -> None:
-        """Extract molecule structures from figures."""
-        with self._stage("Extracting molecules from figures…", "Figure extraction"):
+        """Detect figures once, then read the molecule structures in them.
+
+        The detected figure images are kept so the coreference stage labels exactly the same
+        figures instead of rendering the PDF and running layout detection a second time.
+        """
+        with self._stage("Detecting figures…", "Figure extraction"):
+            with _openchemie_model_call(self._should_cancel):
+                detected_figures = self._client.extract_figures_from_pdf(
+                    self._pdf_for_models, output_bbox=True, **self._page_kwargs
+                )
+            self._figure_images, figure_pages = _figure_images_and_pages(detected_figures)
+            if not self._figure_images:
+                return
+            self._report_progress(
+                f"Reading structures in {len(self._figure_images)} figure(s)…"
+            )
             with _openchemie_model_call(self._should_cancel):
                 with use_molecule_crop_margin(self._options.crop_margin):
-                    figure_results = _one_based_pages(
-                        self._client.extract_molecules_from_figures_in_pdf(
-                            self._pdf_for_models, **self._model_kwargs
-                        )
+                    figure_results = self._client.extract_molecules_from_figures(
+                        self._figure_images, batch_size=self._options.batch_size
                     )
+            for result, page in zip(figure_results or [], figure_pages):
+                if isinstance(result, dict):
+                    result["page"] = page
             self.molecules.extend(
                 molecules_from_figure_results(
                     figure_results, crop_margin=self._options.crop_margin
@@ -244,13 +282,18 @@ class _ExtractionRun:
             self._apply_molecule_cap()
 
     def _run_coreference_stage(self) -> None:
-        """Attach figure labels (such as compound numbers) to the figure molecules."""
+        """Attach figure labels (such as compound numbers) to the figure molecules.
+
+        Runs on the figure images from the figure stage. MolScribe is skipped because the
+        structures were already read with context-preserving crops; only labels are needed.
+        """
         with self._stage("Resolving molecule–label coreferences…", "Coreference extraction"):
             with _openchemie_model_call(self._should_cancel):
-                coreference_figures = _one_based_pages(
-                    self._client.extract_molecule_corefs_from_figures_in_pdf(
-                        self._pdf_for_models, **self._model_kwargs, molscribe=False, ocr=True
-                    )
+                coreference_figures = self._client.extract_molecule_corefs_from_figures(
+                    self._figure_images,
+                    batch_size=self._options.batch_size,
+                    molscribe=False,
+                    ocr=True,
                 )
             apply_coref_identifiers(self.molecules, coreference_figures)
 

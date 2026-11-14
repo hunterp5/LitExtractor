@@ -196,7 +196,7 @@ def test_extract_from_pdf_cancels_inside_a_long_model_call(tmp_path):
     model = torch.nn.Sequential(*(CountingLinear(4, 4) for _ in range(1000)))
 
     class SlowClient:
-        def extract_molecules_from_figures_in_pdf(self, _pdf, **_kwargs):
+        def extract_figures_from_pdf(self, _pdf, **_kwargs):
             model(torch.zeros(1, 4))
             return []
 

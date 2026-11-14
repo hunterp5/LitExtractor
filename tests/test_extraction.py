@@ -37,11 +37,14 @@ from litextractor.models import ExtractedMolecule, ExtractOptions
 
 
 class FakeClient:
-    def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
+    def extract_figures_from_pdf(self, pdf, **kwargs):
         del pdf, kwargs
+        return [{"figure": {"image": "figure-0"}, "page": 0}]
+
+    def extract_molecules_from_figures(self, figures, **kwargs):
+        del figures, kwargs
         return [
             {
-                "page": 0,
                 "molecules": [
                     {
                         "smiles": "CCO",
@@ -70,9 +73,9 @@ class FakeClient:
             }
         ]
 
-    def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
-        del pdf, kwargs
-        return []
+    def extract_molecule_corefs_from_figures(self, figures, **kwargs):
+        del kwargs
+        return [{"bboxes": [], "corefs": []} for _ in figures]
 
     def extract_reactions_from_pdf(self, pdf, **kwargs):
         del pdf, kwargs
@@ -147,13 +150,17 @@ def test_figure_results_expand_bbox_before_crop():
         crop_margin=0.18,
     )
 
+    import io
+
+    from PIL import Image
+
     assert len(recs) == 1
-    assert recs[0].bbox is not None
-    assert recs[0].bbox[0] == pytest.approx(0.16)
-    assert recs[0].bbox[1] == pytest.approx(0.16)
-    assert recs[0].bbox[2] == pytest.approx(0.84)
-    assert recs[0].bbox[3] == pytest.approx(0.84)
+    # The stored box is the detection itself (used for label matching); only the crop grows.
+    assert recs[0].bbox == pytest.approx((0.25, 0.25, 0.75, 0.75))
+    assert recs[0].figure_index == 0
     assert recs[0].crop_png is not None
+    with Image.open(io.BytesIO(recs[0].crop_png)) as crop:
+        assert crop.size == (68, 68)
 
 
 def test_figure_results_do_not_add_synthetic_border_to_existing_crop():
@@ -259,12 +266,7 @@ def test_figure_crop_uses_only_real_pixels_at_source_image_boundary():
     )
 
     assert len(recs) == 1
-    bbox = recs[0].bbox
-    assert bbox is not None
-    assert bbox[0] < 0.0
-    assert bbox[1] < 0.0
-    assert bbox[2] > 0.30
-    assert bbox[3] > 0.24
+    assert recs[0].bbox == pytest.approx((0.04, 0.03, 0.30, 0.24))
     assert recs[0].crop_png is not None
     with Image.open(io.BytesIO(recs[0].crop_png)) as img:
         assert img.size == (45, 36)
@@ -433,9 +435,9 @@ def test_coreference_extraction_skips_unused_molscribe_predictions():
         def __init__(self):
             self.coreference_kwargs = None
 
-        def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
+        def extract_molecule_corefs_from_figures(self, figures, **kwargs):
             self.coreference_kwargs = kwargs
-            return super().extract_molecule_corefs_from_figures_in_pdf(pdf, **kwargs)
+            return super().extract_molecule_corefs_from_figures(figures, **kwargs)
 
     client = TrackingClient()
     extract_from_pdf(
@@ -454,9 +456,9 @@ def test_coreference_extraction_is_skipped_without_figure_source():
         def __init__(self):
             self.coreference_calls = 0
 
-        def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
+        def extract_molecule_corefs_from_figures(self, figures, **kwargs):
             self.coreference_calls += 1
-            return super().extract_molecule_corefs_from_figures_in_pdf(pdf, **kwargs)
+            return super().extract_molecule_corefs_from_figures(figures, **kwargs)
 
     client = TrackingClient()
     result = extract_from_pdf(
@@ -474,13 +476,13 @@ def test_coreference_extraction_is_skipped_when_figures_find_no_molecules():
         def __init__(self):
             self.coreference_calls = 0
 
-        def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
-            del pdf, kwargs
-            return []
+        def extract_molecules_from_figures(self, figures, **kwargs):
+            del kwargs
+            return [{"molecules": []} for _ in figures]
 
-        def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
+        def extract_molecule_corefs_from_figures(self, figures, **kwargs):
             self.coreference_calls += 1
-            return super().extract_molecule_corefs_from_figures_in_pdf(pdf, **kwargs)
+            return super().extract_molecule_corefs_from_figures(figures, **kwargs)
 
     client = TrackingClient()
     result = extract_from_pdf(
@@ -504,13 +506,12 @@ def test_extract_from_pdf_uses_selected_margin_for_openchemie_crop_and_resets_it
     assert ExtractOptions().crop_margin == 0.0
 
     class CropMarginClient(FakeClient):
-        def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
-            del pdf, kwargs
+        def extract_molecules_from_figures(self, figures, **kwargs):
+            del figures, kwargs
             image = np.zeros((100, 100, 3), dtype=np.uint8)
             detections = [[{"category": "[Mol]", "bbox": (0.25, 0.25, 0.75, 0.75), "score": 0.9}]]
-            figures, _, _ = _clean_bbox_output_with_context([image], detections)
-            figures[0]["page"] = 0
-            return figures
+            results, _, _ = _clean_bbox_output_with_context([image], detections)
+            return results
 
     result = extract_from_pdf(
         "dummy.pdf",
@@ -609,13 +610,17 @@ def test_structure_cap_does_not_skip_coreferences_or_reactions():
         def __init__(self):
             self.calls = []
 
-        def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
-            self.calls.append("figures")
-            return super().extract_molecules_from_figures_in_pdf(pdf, **kwargs)
+        def extract_figures_from_pdf(self, pdf, **kwargs):
+            self.calls.append("detect")
+            return super().extract_figures_from_pdf(pdf, **kwargs)
 
-        def extract_molecule_corefs_from_figures_in_pdf(self, pdf, **kwargs):
+        def extract_molecules_from_figures(self, figures, **kwargs):
+            self.calls.append("figures")
+            return super().extract_molecules_from_figures(figures, **kwargs)
+
+        def extract_molecule_corefs_from_figures(self, figures, **kwargs):
             self.calls.append("corefs")
-            return super().extract_molecule_corefs_from_figures_in_pdf(pdf, **kwargs)
+            return super().extract_molecule_corefs_from_figures(figures, **kwargs)
 
         def extract_reactions_from_pdf(self, pdf, **kwargs):
             self.calls.append("reactions")
@@ -634,7 +639,7 @@ def test_structure_cap_does_not_skip_coreferences_or_reactions():
         client=client,
     )
 
-    assert client.calls == ["figures", "corefs", "reactions"]
+    assert client.calls == ["detect", "figures", "corefs", "reactions"]
     assert len(result.molecules) == 1
     assert len(result.reactions) == 1
 
@@ -694,13 +699,12 @@ def test_coreference_parser_skips_negative_and_non_integer_indices(caplog):
     from litextractor.extraction_coreference import apply_coref_identifiers
 
     molecule = ExtractedMolecule(
-        smiles="CCO", source="figure", page=1, bbox=(0.1, 0.1, 0.5, 0.5)
+        smiles="CCO", source="figure", page=1, bbox=(0.1, 0.1, 0.5, 0.5), figure_index=0
     )
     apply_coref_identifiers(
         [molecule],
         [
             {
-                "page": 1,
                 "bboxes": [
                     {"bbox": (0.1, 0.1, 0.5, 0.5)},
                     {"bbox": (0.6, 0.1, 0.8, 0.2), "text": "Compound A"},
@@ -719,11 +723,10 @@ def test_max_molecules_trims_and_skips_text():
         def __init__(self) -> None:
             self.text_called = False
 
-        def extract_molecules_from_figures_in_pdf(self, pdf, **kwargs):
-            del pdf, kwargs
+        def extract_molecules_from_figures(self, figures, **kwargs):
+            del figures, kwargs
             return [
                 {
-                    "page": 1,
                     "molecules": [
                         {"smiles": "C", "molfile": ""},
                         {"smiles": "CC", "molfile": ""},
@@ -777,3 +780,74 @@ def test_slice_pdf_pages_identity_and_window(tmp_path):
         if is_temp:
             Path(sliced).unlink(missing_ok=True)
 
+
+
+def test_coreference_labels_stay_within_their_own_figure():
+    from litextractor.extraction_coreference import apply_coref_identifiers
+
+    # Two figures on the same page with molecules at identical figure-relative coordinates.
+    box = (0.1, 0.1, 0.5, 0.5)
+    first = ExtractedMolecule(smiles="CCO", source="figure", page=3, bbox=box, figure_index=0)
+    second = ExtractedMolecule(smiles="CCN", source="figure", page=3, bbox=box, figure_index=1)
+
+    def labelled(text):
+        return {
+            "bboxes": [{"bbox": box}, {"bbox": (0.6, 0.1, 0.8, 0.2), "text": text}],
+            "corefs": [[0, 1]],
+        }
+
+    apply_coref_identifiers([first, second], [labelled("1a"), labelled("2b")])
+
+    assert first.identifier == "1a"
+    assert second.identifier == "2b"
+
+
+def test_figures_are_detected_once_and_shared_with_the_coreference_stage():
+    class TrackingClient(FakeClient):
+        def __init__(self):
+            self.detections = 0
+            self.molecule_images = None
+            self.coreference_images = None
+
+        def extract_figures_from_pdf(self, pdf, **kwargs):
+            self.detections += 1
+            assert kwargs == {"output_bbox": True, "num_pages": 2}
+            return [
+                {"figure": {"image": "figure-a"}, "page": 0},
+                {"figure": {"image": None}, "page": 1},
+                {"figure": {"image": "figure-b"}, "page": 4},
+            ]
+
+        def extract_molecules_from_figures(self, figures, **kwargs):
+            self.molecule_images = list(figures)
+            box = (0.1, 0.1, 0.5, 0.5)
+            return [
+                {"molecules": [{"smiles": "CCO", "bbox": box}]},
+                {"molecules": [{"smiles": "CCN", "bbox": box}]},
+            ]
+
+        def extract_molecule_corefs_from_figures(self, figures, **kwargs):
+            self.coreference_images = list(figures)
+            return [
+                {
+                    "bboxes": [
+                        {"bbox": (0.1, 0.1, 0.5, 0.5)},
+                        {"bbox": (0.6, 0.1, 0.8, 0.2), "text": text},
+                    ],
+                    "corefs": [[0, 1]],
+                }
+                for text in ("7", "8")
+            ]
+
+    client = TrackingClient()
+    result = extract_from_pdf(
+        "dummy.pdf",
+        ExtractOptions(text=False, corefs=True, num_pages=2, merge_by_inchi=False),
+        client=client,
+    )
+
+    assert client.detections == 1
+    assert client.molecule_images == ["figure-a", "figure-b"]
+    assert client.coreference_images == ["figure-a", "figure-b"]
+    labels = {molecule.smiles: (molecule.identifier, molecule.page) for molecule in result.molecules}
+    assert labels == {"CCO": ("7", 1), "CCN": ("8", 5)}

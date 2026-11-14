@@ -111,7 +111,9 @@ class ExtractedMolecule:
         inchi_key: InChIKey computed by RDKit.
         crop_png: PNG bytes of the cropped region of the PDF page the structure came from.
         context: Surrounding text describing the structure.
-        bbox: Bounding box of the structure on its page, if known.
+        bbox: Detected bounding box, normalized to the figure image it was found in.
+        figure_index: Position of that figure among the figures detected in this run, used to
+            pair the structure with labels found in the same figure; ``None`` if not from one.
         sources: Every origin that detected this structure (all merged duplicates);
             ``source`` is the primary one.
         pages: Every page the structure appears on, ascending; ``page`` is the first.
@@ -129,6 +131,7 @@ class ExtractedMolecule:
     crop_png: bytes | None = None
     context: str = ""
     bbox: tuple[float, ...] | None = None
+    figure_index: int | None = None
     sources: list[str] = field(default_factory=list)
     pages: list[int] = field(default_factory=list)
 

@@ -176,10 +176,11 @@ def molecules_from_figure_results(
     """Flatten OpenChemIE figure-molecule output into enriched molecule records.
 
     Each molecule gets a PNG crop: the detector's own crop when present, otherwise a crop of
-    the full figure around its bounding box expanded by ``crop_margin``.
+    the full figure around its bounding box expanded by ``crop_margin``. The stored ``bbox`` is
+    the unexpanded detection, and ``figure_index`` is the figure's position in ``figures``.
     """
     molecules: list[ExtractedMolecule] = []
-    for figure in figures or []:
+    for figure_index, figure in enumerate(figures or []):
         if not isinstance(figure, dict):
             continue
         page = parse_page_number(figure.get("page"))
@@ -208,7 +209,8 @@ def molecules_from_figure_results(
                 source="figure",
                 page=page,
                 score=score,
-                bbox=expanded_bbox or detected_bbox,
+                bbox=detected_bbox,
+                figure_index=figure_index,
                 crop_png=image_to_png_bytes(crop_image),
             )
             molecules.append(enrich_molecule(molecule))

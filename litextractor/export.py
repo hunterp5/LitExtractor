@@ -19,9 +19,12 @@
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
 
 from .models import ExtractedMolecule
+
+logger = logging.getLogger(__name__)
 
 
 def molecule_export_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, str]]:
@@ -77,7 +80,11 @@ def write_smi(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
 
 
 def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
-    """Write RDKit-parseable records to SDF. Returns the number of molecules written."""
+    """Write RDKit-parseable records to SDF. Returns the number of molecules written.
+
+    Records RDKit cannot parse or serialize (for example OCR'd aromatic rings that cannot be
+    kekulized) are skipped individually so one bad structure does not abort the export.
+    """
     from rdkit import Chem
 
     from .chemistry import parse_mol
@@ -89,21 +96,33 @@ def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
             rdkit_mol = parse_mol(smiles=molecule.smiles, molfile=molecule.molfile)
             if rdkit_mol is None:
                 continue
-            rdkit_mol.SetProp("Identifier", molecule.identifier)
-            rdkit_mol.SetProp("Page", "; ".join(str(page) for page in molecule.page_numbers))
-            rdkit_mol.SetProp(
-                "Source", "; ".join(molecule.sources) if molecule.sources else molecule.source
-            )
-            if molecule.score is not None:
-                rdkit_mol.SetProp("Score", f"{molecule.score:.3f}")
-            if molecule.formula:
-                rdkit_mol.SetProp("Formula", molecule.formula)
-            if molecule.inchi_key:
-                rdkit_mol.SetProp("InChIKey", molecule.inchi_key)
-            if molecule.context:
-                rdkit_mol.SetProp("Context", molecule.context)
-            writer.write(rdkit_mol)
+            _set_sdf_properties(rdkit_mol, molecule)
+            try:
+                # A failed write emits nothing, so the file stays well-formed.
+                writer.write(rdkit_mol)
+            except Exception:
+                logger.warning("Skipping unwritable SDF record %r", molecule.smiles, exc_info=True)
+                continue
             written += 1
     finally:
         writer.close()
     return written
+
+
+def _set_sdf_properties(rdkit_mol, molecule: ExtractedMolecule) -> None:
+    """Copy the record's metadata onto ``rdkit_mol`` as SDF data fields."""
+    rdkit_mol.SetProp("Identifier", molecule.identifier)
+    rdkit_mol.SetProp("Page", "; ".join(str(page) for page in molecule.page_numbers))
+    rdkit_mol.SetProp(
+        "Source", "; ".join(molecule.sources) if molecule.sources else molecule.source
+    )
+    if molecule.score is not None:
+        rdkit_mol.SetProp("Score", f"{molecule.score:.3f}")
+    if molecule.formula:
+        rdkit_mol.SetProp("Formula", molecule.formula)
+    if molecule.molecular_weight is not None:
+        rdkit_mol.SetProp("MW", f"{molecule.molecular_weight:.3f}")
+    if molecule.inchi_key:
+        rdkit_mol.SetProp("InChIKey", molecule.inchi_key)
+    if molecule.context:
+        rdkit_mol.SetProp("Context", molecule.context)

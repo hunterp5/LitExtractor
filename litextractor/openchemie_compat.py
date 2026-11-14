@@ -22,6 +22,7 @@
 - :mod:`.compat_checkpoint` — scoped ``torch.load`` / Transformers checkpoint gates
 - :mod:`.compat_pdf_text` — ``pdftotext`` shim, ChemRxnExtractor stub, paragraph source
 - :mod:`.compat_figures` — MolScribe, molecule-crop, layout-context, and page-fallback patches
+- :mod:`.compat_batching` — per-image post-processing in batched MolDetect/RxnScribe calls
 - :mod:`.http_weights` — model-weight downloads and iopath cache naming
 """
 
@@ -30,6 +31,7 @@ from __future__ import annotations
 import logging
 import os
 
+from .compat_batching import patch_rxnscribe_batch_images
 from .compat_checkpoint import (
     patch_torch_load_weights_only_default,
     patch_transformers_torch_load_check,
@@ -90,6 +92,7 @@ def prepare_openchemie_imports() -> None:
     patch_transformers_torch_load_check()
     patch_iopath_http_cache_filenames()
     patch_empty_molscribe_results()
+    patch_rxnscribe_batch_images()
     patch_pdfminer_cancellation()
     patch_openchemie_layout_crop_context()
     patch_openchemie_figure_fallback()

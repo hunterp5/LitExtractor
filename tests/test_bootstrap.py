@@ -51,7 +51,7 @@ def test_prepare_qt_runtime_retains_registered_dll_directory_handles(
         registrations.append(directory)
         return handles[len(registrations) - 1]
 
-    monkeypatch.setattr(bootstrap.os, "add_dll_directory", register)
+    monkeypatch.setattr(bootstrap.os, "add_dll_directory", register, raising=False)
     monkeypatch.setenv("PATH", "original-path")
     try:
         bootstrap._prepare_qt_runtime()
@@ -78,7 +78,7 @@ def test_prepare_qt_runtime_logs_registration_failure_and_continues(
             raise OSError("access denied")
         return object()
 
-    monkeypatch.setattr(bootstrap.os, "add_dll_directory", register)
+    monkeypatch.setattr(bootstrap.os, "add_dll_directory", register, raising=False)
     try:
         bootstrap._prepare_qt_runtime()
 
@@ -95,7 +95,9 @@ def test_prepare_qt_runtime_is_noop_off_windows(monkeypatch: pytest.MonkeyPatch)
     def unexpected_registration(_directory: str) -> object:
         raise AssertionError("DLL directories are only registered on Windows")
 
-    monkeypatch.setattr(bootstrap.os, "add_dll_directory", unexpected_registration)
+    monkeypatch.setattr(
+        bootstrap.os, "add_dll_directory", unexpected_registration, raising=False
+    )
     bootstrap._prepare_qt_runtime()
 
 

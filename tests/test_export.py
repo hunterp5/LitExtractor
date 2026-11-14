@@ -63,6 +63,31 @@ def test_write_csv_smi_sdf(tmp_path):
     assert sdf_path.stat().st_size > 0
 
 
+def test_write_sdf_skips_unkekulizable_records_and_keeps_the_rest(tmp_path):
+    from rdkit import Chem
+
+    # A five-membered all-aromatic carbon ring is a typical OCR error RDKit cannot kekulize.
+    broken = ExtractedMolecule(smiles="c1cccc1", identifier="broken", page=2)
+    sdf_path = tmp_path / "out.sdf"
+
+    written = write_sdf(sdf_path, [_ethanol(), broken, _ethanol()])
+
+    records = [mol for mol in Chem.SDMolSupplier(str(sdf_path)) if mol is not None]
+    assert written == 2
+    assert len(records) == 2
+    assert all(record.GetProp("Identifier") == "EtOH" for record in records)
+    assert records[0].GetProp("MW") == "46.069"
+
+
+def test_sdf_status_message_reports_skipped_records():
+    from litextractor.ui.main_window import _sdf_success_message
+
+    assert _sdf_success_message("/x/out.sdf", 3, 3) == "Wrote 3 molecule(s) to out.sdf"
+    assert _sdf_success_message("/x/out.sdf", 2, 3).endswith(
+        "skipped 1 without a writable structure"
+    )
+
+
 def test_export_failure_is_reported_and_does_not_change_last_dir(
     qapp, monkeypatch, tmp_path
 ):

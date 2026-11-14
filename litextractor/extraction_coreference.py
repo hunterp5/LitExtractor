@@ -22,7 +22,7 @@ import logging
 from numbers import Integral
 from typing import Any
 
-from .extraction_results import join_text, parse_bbox, parse_page_number
+from .extraction_results import join_text, parse_bbox
 from .models import ExtractedMolecule
 
 logger = logging.getLogger(__name__)
@@ -58,36 +58,36 @@ def apply_coref_identifiers(
 ) -> None:
     """Attach identifier text from coreference pairs to overlapping figure molecules.
 
-    Each pair links a molecule box to a label box on the same page. The label becomes the
-    identifier of the figure molecule that overlaps the molecule box the most. Malformed
-    entries are logged and skipped individually.
+    ``coreference_figures`` must be aligned with the figures the molecules were read from:
+    entry ``i`` describes the figure whose molecules have ``figure_index == i``. Box coordinates
+    are normalized to each figure, so only molecules of the same figure are compared. Each pair
+    links a molecule box to a label box; the label becomes the identifier of the figure molecule
+    that overlaps the molecule box the most. Malformed entries are logged and skipped.
     """
-    figure_molecules_by_page: dict[int | None, list[ExtractedMolecule]] = {}
+    figure_molecules: dict[int, list[ExtractedMolecule]] = {}
     for molecule in molecules:
-        if molecule.source == "figure":
-            figure_molecules_by_page.setdefault(molecule.page, []).append(molecule)
+        if molecule.source == "figure" and molecule.figure_index is not None:
+            figure_molecules.setdefault(molecule.figure_index, []).append(molecule)
 
-    for figure in coreference_figures or []:
+    for figure_index, figure in enumerate(coreference_figures or []):
         if not isinstance(figure, dict):
-            logger.warning("Ignoring malformed OpenChemIE coreference figure")
-            continue
-        raw_page = figure.get("page")
-        page = parse_page_number(raw_page)
-        if raw_page is not None and page is None:
+            logger.warning("Ignoring malformed OpenChemIE coreference figure %d", figure_index)
             continue
         boxes = figure.get("bboxes")
         if not isinstance(boxes, (list, tuple)):
-            logger.warning("Ignoring malformed OpenChemIE coreference boxes on page %r", page)
+            logger.warning("Ignoring malformed coreference boxes in figure %d", figure_index)
             continue
         pairs = figure.get("corefs") or []
         if not isinstance(pairs, (list, tuple)):
-            logger.warning("Ignoring malformed OpenChemIE coreference pairs on page %r", page)
+            logger.warning("Ignoring malformed coreference pairs in figure %d", figure_index)
             continue
-        page_molecules = figure_molecules_by_page.get(page, [])
+        candidates = figure_molecules.get(figure_index, [])
+        if not candidates:
+            continue
         for pair in pairs:
             box_pair = _boxes_of_pair(pair, boxes)
             if box_pair is not None:
-                _label_best_overlapping_molecule(page_molecules, *box_pair)
+                _label_best_overlapping_molecule(candidates, *box_pair)
 
 
 def _boxes_of_pair(pair: Any, boxes: list | tuple) -> tuple[dict, dict] | None:
