@@ -37,9 +37,9 @@ from litextractor.models import ExtractedMolecule, ExtractOptions
 
 
 class FakeClient:
-    def extract_figures_from_pdf(self, pdf, **kwargs):
+    def extract_figures_and_tables_from_pdf(self, pdf, **kwargs):
         del pdf, kwargs
-        return [{"figure": {"image": "figure-0"}, "page": 0}]
+        return {"figures": [{"figure": {"image": "figure-0"}, "page": 0}], "tables": []}
 
     def extract_molecules_from_figures(self, figures, **kwargs):
         del figures, kwargs
@@ -651,9 +651,9 @@ def test_structure_cap_does_not_skip_coreferences_or_reactions():
         def __init__(self):
             self.calls = []
 
-        def extract_figures_from_pdf(self, pdf, **kwargs):
+        def extract_figures_and_tables_from_pdf(self, pdf, **kwargs):
             self.calls.append("detect")
-            return super().extract_figures_from_pdf(pdf, **kwargs)
+            return super().extract_figures_and_tables_from_pdf(pdf, **kwargs)
 
         def extract_molecules_from_figures(self, figures, **kwargs):
             self.calls.append("figures")
@@ -850,14 +850,17 @@ def test_figures_are_detected_once_and_shared_with_the_coreference_stage():
             self.molecule_images = None
             self.coreference_images = None
 
-        def extract_figures_from_pdf(self, pdf, **kwargs):
+        def extract_figures_and_tables_from_pdf(self, pdf, **kwargs):
             self.detections += 1
-            assert kwargs == {"output_bbox": True, "num_pages": 2}
-            return [
-                {"figure": {"image": "figure-a"}, "page": 0},
-                {"figure": {"image": None}, "page": 1},
-                {"figure": {"image": "figure-b"}, "page": 4},
-            ]
+            assert kwargs == {"num_pages": 2}
+            return {
+                "figures": [
+                    {"figure": {"image": "figure-a"}, "page": 0},
+                    {"figure": {"image": None}, "page": 1},
+                    {"figure": {"image": "figure-b"}, "page": 4},
+                ],
+                "tables": [],
+            }
 
         def extract_molecules_from_figures(self, figures, **kwargs):
             self.molecule_images = list(figures)

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from numbers import Integral
+from uuid import uuid4
 
 #: MolScribe confidences below this are flagged. On sample papers, non-structures (protein
 #: ribbons, numbered lists, reaction arrows) scored 0.0 to 0.5 and real structures mostly 0.8+.
@@ -35,6 +36,8 @@ class ExtractOptions:
         text: Extract structures named in running text.
         corefs: Resolve coreferences between figure structures and text mentions.
         reactions: Also extract reactions.
+        tables: Keep the data tables found while detecting figures and link their rows to
+            molecules by compound label or name.
         merge_by_inchi: Merge molecules that share an InChIKey into one record.
         first_page: 1-based first page to process.
         num_pages: Number of pages to process; ``None`` or ``0`` means all remaining pages.
@@ -47,6 +50,7 @@ class ExtractOptions:
     text: bool = True
     corefs: bool = True
     reactions: bool = False
+    tables: bool = True
     merge_by_inchi: bool = True
     first_page: int = 1
     num_pages: int | None = None
@@ -112,6 +116,7 @@ class ExtractedMolecule:
         sources: Every origin that detected this structure (all merged duplicates);
             ``source`` is the primary one.
         pages: Every page the structure appears on, ascending; ``page`` is the first.
+        id: Stable identifier within a result, used by :class:`TableLink`. Not compared.
     """
 
     smiles: str
@@ -130,6 +135,7 @@ class ExtractedMolecule:
     figure_index: int | None = None
     sources: list[str] = field(default_factory=list)
     pages: list[int] = field(default_factory=list)
+    id: str = field(default_factory=lambda: uuid4().hex[:12], compare=False)
 
     def __post_init__(self) -> None:
         """Seed ``sources`` from ``source`` and reconcile ``page`` with ``pages``."""
@@ -180,6 +186,69 @@ class ExtractedReaction:
 
 
 @dataclass
+class ExtractedTable:
+    """A data table from the PDF, kept as the text it contains.
+
+    Cells stay raw strings, so values such as ">10000", "<0.1" or "+++" survive unchanged.
+    A table printed across several pages, or as side-by-side panels repeating the same columns,
+    is joined into one table with one row per entry.
+
+    Attributes:
+        id: Short identifier within a result ("T1", "T2", ...).
+        title: The caption, e.g. "Table 2. Inhibition of ...", or "" when none was found.
+        pages: 1-based pages the table spans, ascending.
+        columns: Column headers; "" where a header could not be read.
+        rows: Cell text, one list per row, each as long as ``columns``.
+        key_column: Index of the column holding compound labels or names, if one was found.
+        footnote: Text printed under the table.
+        crops_png: PNG images of the table as printed, one per page fragment.
+    """
+
+    id: str
+    title: str
+    pages: list[int]
+    columns: list[str]
+    rows: list[list[str]]
+    key_column: int | None = None
+    footnote: str = ""
+    crops_png: list[bytes] = field(default_factory=list, repr=False)
+
+    @property
+    def name(self) -> str:
+        """A short display name: "Table 2" from the caption, else "Table on p. N"."""
+        import re
+
+        match = re.match(r"\s*(table\s+[A-Za-z0-9]+)", self.title, re.IGNORECASE)
+        if match:
+            return " ".join(match.group(1).split()).rstrip(".")
+        return f"Table on p. {self.pages[0]}" if self.pages else "Table"
+
+
+@dataclass
+class TableLink:
+    """A suggested or confirmed pairing of one table row with one molecule.
+
+    Attributes:
+        table_id: The :attr:`ExtractedTable.id` of the table.
+        row_index: Index of the row in :attr:`ExtractedTable.rows`.
+        molecule_id: The :attr:`ExtractedMolecule.id` of the molecule.
+        label: The key-column text that was matched.
+        method: ``"exact"`` (labels equal once normalized), ``"ocr"`` (equal once common OCR
+            confusions such as I/1 and O/0 are folded) or ``"manual"`` (set by the user).
+        ambiguous: True when the row matched several molecules; none of them is chosen.
+        confirmed: True once the user has accepted the link.
+    """
+
+    table_id: str
+    row_index: int
+    molecule_id: str
+    label: str
+    method: str = "exact"
+    ambiguous: bool = False
+    confirmed: bool = False
+
+
+@dataclass
 class ExtractionResult:
     """The complete output of one PDF extraction run.
 
@@ -188,9 +257,13 @@ class ExtractionResult:
         molecules: Extracted molecules.
         reactions: Extracted reactions.
         warnings: Non-fatal problems encountered during extraction.
+        tables: Data tables found in the PDF.
+        table_links: Pairings of table rows with molecules.
     """
 
     pdf_path: str
     molecules: list[ExtractedMolecule]
     reactions: list[ExtractedReaction]
     warnings: list[str] = field(default_factory=list)
+    tables: list[ExtractedTable] = field(default_factory=list)
+    table_links: list[TableLink] = field(default_factory=list)

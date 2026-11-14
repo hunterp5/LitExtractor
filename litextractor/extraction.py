@@ -38,7 +38,16 @@ from .extraction_results import (
 )
 from .extraction_runtime import load_openchemie
 from .model_runtime import openchemie_client_session
-from .models import ExtractOptions, ExtractedMolecule, ExtractedReaction, ExtractionResult
+from .models import (
+    ExtractedMolecule,
+    ExtractedReaction,
+    ExtractedTable,
+    ExtractionResult,
+    ExtractOptions,
+    TableLink,
+)
+from .tables import link_table_rows, tables_from_openchemie
+from .text_labels import FigurePlacement, apply_text_layer_labels, placement_from_openchemie
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +62,12 @@ class OpenChemIEClient(Protocol):
     the per-figure methods return one result per input image, in input order.
     """
 
-    def extract_figures_from_pdf(self, pdf: str, **kwargs: Any) -> list[dict]:
-        """Render ``pdf`` and detect its figures (``{"figure": {"image"}, "page"}`` dicts)."""
+    def extract_figures_and_tables_from_pdf(self, pdf: str, **kwargs: Any) -> dict:
+        """Render ``pdf`` and detect its figures and tables in one pass.
+
+        Returns ``{"figures": [...], "tables": [...]}``: figures as ``{"figure": {"image"},
+        "page"}`` dicts and tables in OpenChemIE's table format, both with zero-based pages.
+        """
         ...
 
     def extract_molecules_from_figures(self, figures: list, **kwargs: Any) -> list[dict]:
@@ -123,10 +136,16 @@ def _max_known(first: float | None, second: float | None) -> float | None:
     return max(first, second)
 
 
-def _figure_images_and_pages(figures: Any) -> tuple[list[Any], list[int | None]]:
-    """Return the images of detected figures and their one-based pages, skipping bad entries."""
+def _figure_images_and_pages(
+    figures: Any,
+) -> tuple[list[Any], list[int | None], list[FigurePlacement | None]]:
+    """Return the detected figures' images, one-based pages and placements on their pages.
+
+    Entries without an image are skipped; the three lists stay aligned.
+    """
     images: list[Any] = []
     pages: list[int | None] = []
+    placements: list[FigurePlacement | None] = []
     for figure in figures or []:
         figure_block = figure.get("figure") if isinstance(figure, dict) else None
         image = figure_block.get("image") if isinstance(figure_block, dict) else None
@@ -136,7 +155,8 @@ def _figure_images_and_pages(figures: Any) -> tuple[list[Any], list[int | None]]
         page = parse_page_number(figure.get("page"))
         images.append(image)
         pages.append(None if page is None else page + 1)
-    return images, pages
+        placements.append(placement_from_openchemie(figure))
+    return images, pages, placements
 
 
 def _one_based_pages(figure_results: Any) -> Any:
@@ -179,6 +199,11 @@ class _ExtractionRun:
         self._model_kwargs: dict[str, Any] = {"batch_size": options.batch_size}
         self._pdf_for_models = pdf_path
         self._figure_images: list[Any] = []
+        self._figure_placements: list[FigurePlacement | None] = []
+        self._figure_regions: list[tuple[int | None, tuple]] = []
+        self._raw_tables: list[dict] = []
+        self.tables: list[ExtractedTable] = []
+        self.table_links: list[TableLink] = []
         self.molecules: list[ExtractedMolecule] = []
         self.reactions: list[ExtractedReaction] = []
         self.warnings: list[str] = []
@@ -191,7 +216,7 @@ class _ExtractionRun:
         )
         try:
             self._prepare_client(page_offset)
-            if options.figures:
+            if options.figures or options.tables:
                 self._run_figure_stage()
             if options.text and not self._molecule_cap_reached():
                 self._run_text_stage()
@@ -199,6 +224,8 @@ class _ExtractionRun:
                 molecule.figure_index is not None for molecule in self.molecules
             ):
                 self._run_coreference_stage()
+            if any(molecule.figure_index is not None for molecule in self.molecules):
+                self._run_text_label_stage()
             if options.reactions:
                 self._run_reaction_stage()
 
@@ -208,15 +235,20 @@ class _ExtractionRun:
                 self.molecules = merge_molecules_by_inchi(self.molecules)
             self.molecules = prioritize_molecules(self.molecules)
             self._apply_molecule_cap()
+            if options.tables:
+                self._run_table_stage(page_offset)
 
             self._report_progress(
-                f"Finished — {len(self.molecules)} molecule(s), {len(self.reactions)} reaction(s)."
+                f"Finished — {len(self.molecules)} molecule(s), {len(self.reactions)} "
+                f"reaction(s), {len(self.tables)} table(s)."
             )
             return ExtractionResult(
                 pdf_path=self._pdf_path,
                 molecules=self.molecules,
                 reactions=self.reactions,
                 warnings=self.warnings,
+                tables=self.tables,
+                table_links=self.table_links,
             )
         finally:
             if is_temporary_pdf:
@@ -251,12 +283,27 @@ class _ExtractionRun:
         The detected figure images are kept so the coreference stage labels exactly the same
         figures instead of rendering the PDF and running layout detection a second time.
         """
-        with self._stage("Detecting figures…", "Figure extraction"):
+        with self._stage("Detecting figures and tables…", "Figure extraction"):
             with _openchemie_model_call(self._should_cancel):
-                detected_figures = self._client.extract_figures_from_pdf(
-                    self._pdf_for_models, output_bbox=True, **self._page_kwargs
+                detected = self._client.extract_figures_and_tables_from_pdf(
+                    self._pdf_for_models, **self._page_kwargs
                 )
-            self._figure_images, figure_pages = _figure_images_and_pages(detected_figures)
+            detected = detected if isinstance(detected, dict) else {}
+            self._raw_tables = list(detected.get("tables") or [])
+            if not self._options.figures:
+                return
+            figures = [
+                figure for figure in detected.get("figures") or []
+                if isinstance(figure, dict)
+                and isinstance(figure.get("figure"), dict)
+                and figure["figure"].get("image") is not None
+            ]
+            self._figure_images, figure_pages, self._figure_placements = _figure_images_and_pages(
+                figures
+            )
+            self._figure_regions = [
+                (figure.get("page"), tuple(figure["figure"].get("bbox") or ())) for figure in figures
+            ]
             if not self._figure_images:
                 return
             self._report_progress(
@@ -271,6 +318,32 @@ class _ExtractionRun:
                     result["page"] = page
             self.molecules.extend(molecules_from_figure_results(figure_results))
             self._apply_molecule_cap()
+
+    def _run_table_stage(self, page_offset: int) -> None:
+        """Clean the tables found during figure detection and link their rows to molecules."""
+        with self._stage("Linking table rows to molecules…", "Table extraction"):
+            # A table region whose image yielded structures is a table of structures (its
+            # example numbers already labelled them), not a table of data.
+            structure_regions = {
+                self._figure_regions[molecule.figure_index]
+                for molecule in self.molecules
+                if molecule.figure_index is not None
+                and molecule.figure_index < len(self._figure_regions)
+            }
+            self._raw_tables = [
+                raw_table
+                for raw_table in self._raw_tables
+                if not isinstance(raw_table, dict)
+                or (raw_table.get("page"), tuple((raw_table.get("table") or {}).get("bbox") or ()))
+                not in structure_regions
+                or not (raw_table.get("table") or {}).get("bbox")
+            ]
+            for raw_table in self._raw_tables:
+                page = parse_page_number(raw_table.get("page")) if isinstance(raw_table, dict) else None
+                if page is not None:
+                    raw_table["page"] = page + 1 + page_offset
+            self.tables = tables_from_openchemie(self._raw_tables)
+            self.table_links = link_table_rows(self.tables, self.molecules)
 
     def _run_text_stage(self) -> None:
         """Extract chemical names from the running text."""
@@ -297,6 +370,23 @@ class _ExtractionRun:
                     ocr=True,
                 )
             apply_coref_identifiers(self.molecules, coreference_figures)
+
+    def _run_text_label_stage(self) -> None:
+        """Label figure molecules with the names or numbers printed beside them in the PDF."""
+        with self._stage("Reading structure labels from the PDF text…", "Text-layer labels"):
+            # The coreference stage has loaded OpenChemIE's EasyOCR reader; reuse it for
+            # figures that are pictures. Without that stage, those figures stay unlabelled
+            # rather than loading another model just for this.
+            reader = None
+            if self._options.corefs:
+                reader = getattr(getattr(self._client, "coref", None), "ocr_model", None)
+            apply_text_layer_labels(
+                self.molecules,
+                self._figure_placements,
+                self._pdf_for_models,
+                figure_images=self._figure_images,
+                ocr_reader=reader,
+            )
 
     def _run_reaction_stage(self) -> None:
         """Extract reactions and the molecules that take part in them."""

@@ -47,7 +47,9 @@ glue around them. Measured or found so far:
 - Fixed already: figures from the 17th on were read against the wrong image; labels were
   matched across every figure on a page; padding molecule crops made readings worse.
 - Pages are rendered at 200 dpi, so small structures fall below MolScribe's 384 px input.
-- Labels are always OCR'd ("1a" read as "Ia"), even when the PDF's text layer has them exactly.
+- Labels were always OCR'd ("1a" read as "Ia"). Done ahead of the rest: figure labels now
+  come from the text layer (OCR for picture figures), which also names journal structures by
+  drug name so they can be matched to table rows.
 - Table rows and columns are guessed from text positions, and scanned tables come back empty.
 - Layout detection was trained on journal pages (PubLayNet), not patents.
 
@@ -57,7 +59,7 @@ glue around them. Measured or found so far:
 2. Replace OpenChemIE's orchestration with our own staged pipeline calling the same models
    (render, layout, detect, recognise, labels, tables, join). This removes most monkeypatches and
    the pinned legacy dependencies that come with OpenChemIE's glue.
-3. Labels from the text layer, figure regions rendered at higher resolution.
+3. Figure regions rendered at higher resolution.
 4. One table route for digital and scanned PDFs: a table-structure model (Docling TableFormer
    or Microsoft Table Transformer) for rows and columns, cell text from the text layer or OCR.
 5. Cross-checks (two crop margins), then a second recogniser (DECIMER or MolGrapher) only if

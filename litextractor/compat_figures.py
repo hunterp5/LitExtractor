@@ -288,11 +288,26 @@ def patch_openchemie_layout_crop_context() -> None:
     TableExtractor._litextractor_layout_context = True
 
 
+def _whole_page_figures(pages: list) -> list[dict]:
+    """One figure per page, covering the whole page (zero-based ``page``)."""
+    import numpy as np
+    from PIL import Image
+
+    return [
+        {
+            "title": "",
+            "figure": {"image": Image.fromarray(np.asarray(page)), "bbox": [0.0, 0.0, 1.0, 1.0]},
+            "table": {"bbox": [], "content": None},
+            "footnote": "",
+            "page": page_index,
+        }
+        for page_index, page in enumerate(pages)
+    ]
+
+
 def patch_openchemie_figure_fallback() -> None:
     """If layoutparser finds no figure blocks, process the whole page as one figure."""
     try:
-        from PIL import Image
-        import numpy as np
         from openchemie.tableextractor import TableExtractor
     except Exception:
         return
@@ -305,22 +320,53 @@ def patch_openchemie_figure_fallback() -> None:
         """Run the original extraction; if no figures were found, treat each page as a figure."""
         results = original(self, pages, pdfparser, content)
         if content == "figures" and not results:
-            for page_index, page_image in enumerate(pages):
-                page_pixels = np.asarray(page_image)
-                results.append(
-                    {
-                        "title": "",
-                        "figure": {
-                            "image": Image.fromarray(page_pixels),
-                            "bbox": [0.0, 0.0, 1.0, 1.0],
-                        },
-                        "table": {"bbox": [], "content": None},
-                        "footnote": "",
-                        "page": page_index,
-                    }
-                )
+            results.extend(_whole_page_figures(pages))
         return results
 
     _extract_with_page_fallback._litextractor_page_fallback = True  # type: ignore[attr-defined]
     TableExtractor.extract_all_tables_and_figures = _extract_with_page_fallback
     TableExtractor._litextractor_page_fallback = True
+
+
+def _extract_figures_and_tables_from_pdf(self, pdf, num_pages=None):
+    """Detect figures and tables in one pass over the pages (zero-based ``page`` in both).
+
+    Upstream ``extract_figures_from_pdf`` already parses every table while looking for figures
+    (a table whose caption sits far above its header holds drawings and counts as a figure),
+    then discards the rest. This keeps them. Figures, images and cell boxes are as upstream
+    returns them with ``output_bbox=True``; with no figure found anywhere, each whole page is
+    one figure.
+    """
+    import pdf2image
+
+    pages = pdf2image.convert_from_path(pdf, last_page=num_pages)
+    extractor = self.tableextractor
+    extractor.set_pdf_file(pdf)
+    extractor.set_output_image(True)
+    # Cell boxes also avoid an upstream crash: without them, repairing a header row
+    # indexes plain strings as if they were dicts.
+    extractor.set_output_bbox(True)
+    extractor.model = self.pdfparser
+    figures: list[dict] = []
+    tables: list[dict] = []
+    for page_index, page in enumerate(pages):
+        extractor.set_page_num(page_index)
+        extractor.run_model(page)
+        page_tables = extractor.extract_table_information()
+        figures.extend(extractor.extract_figure_information())
+        figures.extend(table for table in page_tables if table["figure"]["bbox"])
+        tables.extend(page_tables)
+    if not figures:
+        figures = _whole_page_figures(pages)
+    return {"figures": figures, "tables": tables}
+
+
+def patch_openchemie_figures_and_tables() -> None:
+    """Add ``OpenChemIE.extract_figures_and_tables_from_pdf`` (see the function above)."""
+    try:
+        from openchemie import interface as interface_module
+    except Exception:
+        return
+    interface_module.OpenChemIE.extract_figures_and_tables_from_pdf = (
+        _extract_figures_and_tables_from_pdf
+    )
