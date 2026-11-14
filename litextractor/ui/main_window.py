@@ -86,9 +86,11 @@ _DETAIL_FIELD_NAMES = (
 
 _USER_GUIDE_HTML = (
     "<h3>LitExtractor User Guide</h3>"
-    "<p><b>1. Open a PDF</b><br>"
-    "Use <b>File → Open PDF…</b> to load a patent or chemistry PDF. The app "
-    "keeps track of your last folder so you can navigate quickly.</p>"
+    "<p><b>1. Open PDFs</b><br>"
+    "Use <b>File → Open PDFs…</b> to load a patent or chemistry PDF, or several, or "
+    "<b>Open Folder of PDFs…</b> for every PDF in a folder. Several PDFs are extracted one "
+    "after another with the same options, each into its own result tab; a PDF that fails "
+    "does not stop the rest, and a summary follows the last one.</p>"
     "<p><b>2. Choose extraction sources</b><br>"
     "In the Extract panel, select which data sources to use: figures, text, "
     "coreferences, reactions and/or data tables. More sources improve coverage but may "
@@ -141,6 +143,15 @@ def _build_detail_card(title: str) -> tuple[QFrame, QVBoxLayout]:
     return card, card_layout
 
 
+def pdfs_in_folder(folder: str | Path) -> list[str]:
+    """The PDF files directly inside *folder* (not in subfolders), sorted by name."""
+    return sorted(
+        (str(path) for path in Path(folder).iterdir()
+         if path.is_file() and path.suffix.lower() == ".pdf" and not path.name.startswith(".")),
+        key=lambda path: Path(path).name.lower(),
+    )
+
+
 def _sdf_success_message(path: str, written: int | None, total: int) -> str:
     """Status text for an SDF export, noting records RDKit could not write."""
     written = written or 0
@@ -159,7 +170,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1400, 820)
-        self._pdf_path: str | None = None
+        self._pdf_paths: list[str] = []
+        self._batch_failures: list[tuple[str, str]] = []
+        self._batch_warnings: list[tuple[str, list[str]]] = []
+        self._batch_running = False
         self._last_dir = str(Path.home())
         self._active_result_tab: ExtractionResultTab | None = None
         self._active_molecule_table = None
@@ -206,7 +220,13 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
         self._file_menu = menubar.addMenu("&File")
         file_menu = self._file_menu
-        file_menu.addAction(QAction("&Open PDF…", self, shortcut="Ctrl+O", triggered=self.open_pdf))
+        file_menu.addAction(
+            QAction("&Open PDFs…", self, shortcut="Ctrl+O", triggered=self.open_pdf)
+        )
+        file_menu.addAction(
+            QAction("Open &Folder of PDFs…", self, shortcut="Ctrl+Shift+O",
+                    triggered=self.open_folder)
+        )
         file_menu.addSeparator()
         file_menu.addAction(QAction("Export &CSV…", self, triggered=self.export_csv))
         file_menu.addAction(QAction("Export S&DF…", self, triggered=self.export_sdf))
@@ -276,15 +296,22 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_pdf_group(self) -> QGroupBox:
-        """Build the group that shows the selected PDF and its Open button."""
+        """Build the group that shows the selected PDF(s) and the Open buttons."""
         group = QGroupBox("PDF")
         group_layout = QVBoxLayout(group)
         self._pdf_label = QLabel("No PDF selected")
         self._pdf_label.setWordWrap(True)
-        open_button = QPushButton("Open PDF…")
+        open_button = QPushButton("Open PDFs…")
+        open_button.setToolTip("Choose one PDF, or several to extract one after another.")
         open_button.clicked.connect(self.open_pdf)
+        folder_button = QPushButton("Open Folder…")
+        folder_button.setToolTip("Extract every PDF in a folder, one after another.")
+        folder_button.clicked.connect(self.open_folder)
         group_layout.addWidget(self._pdf_label)
-        group_layout.addWidget(open_button)
+        buttons = QHBoxLayout()
+        buttons.addWidget(open_button)
+        buttons.addWidget(folder_button)
+        group_layout.addLayout(buttons)
         return group
 
     def _build_sources_group(self) -> QGroupBox:
@@ -495,24 +522,44 @@ class MainWindow(QMainWindow):
         CitationsDialog(self).exec()
 
     def open_pdf(self) -> None:
-        """Ask the user for a PDF and make it the document to extract."""
-        path, _ = QFileDialog.getOpenFileName(
+        """Ask the user for one or more PDFs and make them the documents to extract."""
+        paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Open patent PDF",
+            "Open PDFs",
             self._last_dir,
             "PDF files (*.pdf);;All files (*.*)",
         )
-        if not path:
+        if paths:
+            self._set_pdf_paths(paths)
+
+    def open_folder(self) -> None:
+        """Ask for a folder and make every PDF directly inside it the documents to extract."""
+        folder = QFileDialog.getExistingDirectory(self, "Open folder of PDFs", self._last_dir)
+        if not folder:
             return
-        self._set_pdf_path(path)
+        paths = pdfs_in_folder(folder)
+        if not paths:
+            QMessageBox.information(self, APP_NAME, f"No PDF files in:\n{folder}")
+            return
+        self._set_pdf_paths(paths)
 
     def _set_pdf_path(self, path: str) -> None:
-        """Remember the chosen PDF, its folder, and show its name in the panel."""
-        self._pdf_path = path
-        self._last_dir = str(Path(path).parent)
-        self._pdf_label.setText(Path(path).name)
-        self._pdf_label.setToolTip(path)
-        self.status_label.setText(f"Opened {Path(path).name}")
+        """Make one PDF the document to extract."""
+        self._set_pdf_paths([path])
+
+    def _set_pdf_paths(self, paths: list[str]) -> None:
+        """Remember the chosen PDFs and their folder, and list them in the panel."""
+        self._pdf_paths = list(paths)
+        self._last_dir = str(Path(paths[0]).parent)
+        names = [Path(path).name for path in paths]
+        if len(paths) == 1:
+            self._pdf_label.setText(names[0])
+            self.status_label.setText(f"Opened {names[0]}")
+        else:
+            shown = ", ".join(names[:3]) + (f", +{len(names) - 3} more" if len(names) > 3 else "")
+            self._pdf_label.setText(f"{len(paths)} PDFs: {shown}")
+            self.status_label.setText(f"Opened {len(paths)} PDFs; they are extracted in turn.")
+        self._pdf_label.setToolTip("\n".join(paths))
 
     # ------------------------------------------------------------------ option controls
 
@@ -579,10 +626,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ extraction
 
     def start_extraction(self) -> None:
-        """Start extracting the chosen PDF (asking for one first) with the current options."""
-        if not self._pdf_path:
+        """Start extracting the chosen PDF(s) (asking first) with the current options."""
+        if not self._pdf_paths:
             self.open_pdf()
-            if not self._pdf_path:
+            if not self._pdf_paths:
                 return
         options = self._current_options()
         if not (
@@ -590,10 +637,14 @@ class MainWindow(QMainWindow):
         ):
             QMessageBox.information(self, APP_NAME, "Select at least one extraction source.")
             return
+        self._batch_running = len(self._pdf_paths) > 1
+        self._batch_failures, self._batch_warnings = [], []
         self._extraction_controller.start_worker(
-            pdf_path=self._pdf_path,
+            pdf_paths=list(self._pdf_paths),
             options=options,
             on_finished=self._on_extract_finished,
+            on_pdf_failed=self._on_batch_pdf_failed,
+            on_batch_finished=self._on_batch_finished,
         )
 
     def cancel_extraction(self) -> None:
@@ -611,23 +662,50 @@ class MainWindow(QMainWindow):
         if not isinstance(result, ExtractionResult):
             self._extraction_controller.handle_failed("Unexpected extraction result.")
             return
-        result_tab = self._results_controller.add_result(result)
+        # In a batch, results arrive while the user may be reviewing an earlier one: add them
+        # without switching away from the tab being looked at.
+        result_tab = self._results_controller.add_result(result, activate=not self._batch_running)
         result_tab.table_data_changed.connect(self._refresh_selected_detail)
-        self._set_active_result_tab(self._result_tabs.currentIndex())
-        self._detail_panel.show()
         if result.molecules:
             result_tab.molecule_table.selectRow(0)
-        else:
-            self._detail_presenter.clear_detail()
+        self._set_active_result_tab(self._result_tabs.currentIndex())
+        self._detail_panel.show()
+        self._refresh_selected_detail()
         warnings_suffix = ""
         if result.warnings:
             warnings_suffix = " Warnings: " + "; ".join(result.warnings)
-            QMessageBox.warning(self, APP_NAME, "\n".join(result.warnings))
+            if self._batch_running:
+                self._batch_warnings.append((Path(result.pdf_path).name, list(result.warnings)))
+            else:
+                QMessageBox.warning(self, APP_NAME, "\n".join(result.warnings))
         self.status_label.setText(
             f"{Path(result.pdf_path).name}: {len(result.molecules)} molecule(s), "
             f"{len(result.reactions)} reaction(s), {len(result.tables)} table(s)."
             f"{warnings_suffix}"
         )
+
+    def _on_batch_pdf_failed(self, pdf_path: str, message: str) -> None:
+        """Note a PDF of a batch that failed; the rest of the batch continues."""
+        self._batch_failures.append((pdf_path, message))
+        self.status_label.setText(f"{Path(pdf_path).name} failed; continuing with the next PDF.")
+
+    def _on_batch_finished(self, extracted: int, total: int) -> None:
+        """Summarize a batch: how many PDFs were extracted, and any failures or warnings."""
+        self._batch_running = False
+        summary = f"Extracted {extracted} of {total} PDFs."
+        self.status_label.setText(summary)
+        if extracted == 0 and self._result_tabs.count() == 0:
+            self._startup_page.set_loading(False, summary)
+        if not (self._batch_failures or self._batch_warnings):
+            return
+        lines = [summary]
+        if self._batch_failures:
+            lines += ["", "Failed:"]
+            lines += [f"• {Path(path).name}: {message}" for path, message in self._batch_failures]
+        if self._batch_warnings:
+            lines += ["", "Warnings:"]
+            lines += [f"• {name}: {'; '.join(warnings)}" for name, warnings in self._batch_warnings]
+        QMessageBox.warning(self, APP_NAME, "\n".join(lines))
 
     # ------------------------------------------------------------------ result tabs
 

@@ -9,6 +9,7 @@ LitExtractor is a desktop application for finding chemical structures and relate
 - Review structures, SMILES, identifiers, source pages, formulas, molecular weights, and InChIKeys.
 - Select a molecule to view its structure, patent crop on a white canvas, and metadata in a fixed-width preview pane.
 - Read data tables (activity, yield, properties) and match their rows to structures by label, with a Tables tab to confirm, choose or correct each match.
+- Extract several PDFs, or a whole folder, in one go; each gets its own result tab.
 - Merge duplicate molecules by InChIKey.
 - Export molecule data to CSV, SDF, or SMILES, and table data as a long CSV or as each table as printed.
 - Choose CPU or CUDA for model inference. CPU is available immediately; CUDA detection runs in the background after the window opens.
@@ -76,7 +77,7 @@ After an editable installation, the `litextractor` console command is also avail
 
 ## Use the application
 
-1. Open a PDF using **File → Open PDF** or the Open PDF control.
+1. Open one or more PDFs with **File → Open PDFs…**, or every PDF in a folder with **File → Open Folder of PDFs…** (subfolders are not included). Several PDFs are extracted one after another with the same options; each result tab appears as soon as its PDF is done, a PDF that fails does not stop the rest, and one summary lists failures and warnings at the end.
 2. Select the sources to process: figures, text, coreferences, reactions, or data tables.
 3. Optionally set a page range, a molecule limit, and a device.
 4. Start extraction and review the results in the Molecules, Tables and Reactions tabs (Reactions appears only when reactions were extracted). Each extraction is kept in its own result tab; right-click a result tab and confirm to delete it.

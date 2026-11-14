@@ -90,21 +90,32 @@ class ExtractionController:
     def start_worker(
         self,
         *,
-        pdf_path: str,
+        pdf_paths: str | list[str],
         options: ExtractOptions,
         on_finished: Callable[[object], None],
+        on_pdf_failed: Callable[[str, str], None] | None = None,
+        on_batch_finished: Callable[[int, int], None] | None = None,
     ) -> None:
-        """Create and start an extraction worker thread."""
+        """Create and start an extraction worker thread for one PDF or several in turn.
+
+        ``on_finished`` receives each PDF's result as it is done. For a batch,
+        ``on_pdf_failed(path, message)`` is called for each PDF that fails (the rest continue)
+        and ``on_batch_finished(extracted, total)`` after the last one.
+        """
         from ..workers.extract_worker import ExtractWorker
 
         self.set_busy(True)
         self._status_label.setText("Starting…")
-        worker = ExtractWorker(pdf_path, options, self._parent)
+        worker = ExtractWorker(pdf_paths, options, self._parent)
         self.worker = worker
         worker.progress.connect(self.handle_progress)
         worker.finished_ok.connect(on_finished)
         worker.failed.connect(self.handle_failed)
         worker.cancelled.connect(self.handle_cancelled)
+        if on_pdf_failed is not None:
+            worker.pdf_failed.connect(on_pdf_failed)
+        if on_batch_finished is not None:
+            worker.batch_finished.connect(on_batch_finished)
         worker.finished.connect(self.handle_worker_thread_finished)
         worker.start()
 

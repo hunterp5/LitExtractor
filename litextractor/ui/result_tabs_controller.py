@@ -62,8 +62,8 @@ class ResultTabsController:
         self._startup_page = startup_page
         self._on_molecule_selected = on_molecule_selected
 
-    def add_result(self, result: ExtractionResult) -> ExtractionResultTab:
-        """Create and activate a new result tab for one extraction run."""
+    def add_result(self, result: ExtractionResult, *, activate: bool = True) -> ExtractionResultTab:
+        """Create a result tab for one extraction run; switch to it when *activate*."""
         # Imported lazily so application startup does not load RDKit.
         from .extraction_result_tab import ExtractionResultTab
 
@@ -73,7 +73,9 @@ class ResultTabsController:
             self._on_molecule_selected
         )
         self._result_tabs.addTab(result_tab, Path(result.pdf_path).name)
-        self._result_tabs.setCurrentWidget(result_tab)
+        self._result_tabs.setTabToolTip(self._result_tabs.indexOf(result_tab), result.pdf_path)
+        if activate or self._result_tabs.count() == 1:
+            self._result_tabs.setCurrentWidget(result_tab)
         self._results_stack.setCurrentWidget(self._result_tabs)
         self._startup_page.set_loading(False)
         return result_tab
