@@ -442,6 +442,20 @@ class _ExtractionRun:
         self.molecules = self.molecules[:limit]
 
 
+def _require_poppler() -> None:
+    """Find Poppler (also outside PATH) or stop with instructions before models load."""
+    from .poppler import ensure_poppler_on_path, poppler_available
+
+    ensure_poppler_on_path()
+    if not poppler_available():
+        raise RuntimeError(
+            "Poppler is needed to render PDF pages but pdftoppm and pdfinfo were not found "
+            "on PATH, in this Python environment, or in Homebrew's folder. Install it with "
+            "'conda install -c conda-forge poppler' (in the environment the app runs from) "
+            "or 'brew install poppler', then restart LitExtractor."
+        )
+
+
 def extract_from_pdf(
     pdf_path: str,
     options: ExtractOptions,
@@ -457,6 +471,8 @@ def extract_from_pdf(
     during model inference; when it returns True, ``ExtractionCancelled`` is raised.
     """
     options.validate()
+    if client is None:
+        _require_poppler()
     # The cached client is shared and stateful, so only caller-supplied clients skip the lock.
     session = openchemie_client_session() if client is None else nullcontext()
     with session:

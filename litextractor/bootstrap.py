@@ -80,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
 
     log_path = configure_app_logging()
     install_crash_excepthook(log_path=log_path)
+    from .poppler import ensure_poppler_on_path
+
+    ensure_poppler_on_path()
     app = QApplication(argv)
     app.setOrganizationName(APP_NAME)
     app.setApplicationName(APP_NAME)

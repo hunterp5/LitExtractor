@@ -123,3 +123,21 @@ def test_startup_imports_do_not_load_model_or_rdkit_runtime() -> None:
         env=environment,
         cwd=Path(__file__).resolve().parents[1],
     )
+
+
+def test_poppler_is_found_outside_path(monkeypatch, tmp_path):
+    from litextractor import poppler
+
+    empty, tools = tmp_path / "empty", tmp_path / "poppler" / "bin"
+    empty.mkdir()
+    tools.mkdir(parents=True)
+    for name in ("pdftoppm", "pdfinfo"):
+        tool = tools / name
+        tool.write_text("#!/bin/sh\n")
+        tool.chmod(0o755)
+    monkeypatch.setenv("PATH", str(empty))
+
+    assert not poppler.poppler_available()
+    assert poppler.ensure_poppler_on_path([empty, tools]) == tools
+    assert poppler.poppler_available()
+    assert poppler.ensure_poppler_on_path([tools]) is None  # already on PATH: nothing changes
