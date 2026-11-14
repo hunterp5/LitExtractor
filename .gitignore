@@ -67,3 +67,6 @@ htmlcov/
 *~
 Thumbs.db
 .DS_Store
+
+# Benchmark manifests, runs and answer keys (derived from the sample PDFs)
+/samples/benchmark/
