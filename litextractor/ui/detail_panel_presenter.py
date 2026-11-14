@@ -18,13 +18,14 @@
 
 from __future__ import annotations
 
+import html
 import logging
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QLabel, QTableView, QWidget
 
-from ..models import ExtractedMolecule
+from ..models import ExtractedMolecule, ExtractionResult
 from ..structure_dimensions import DETAIL_STRUCTURE_HEIGHT, DETAIL_STRUCTURE_WIDTH
 from .qt_widget_utils import pixmap_from_png
 
@@ -41,6 +42,8 @@ class DetailPanelPresenter:
         detail_crop: QLabel,
         detail_crop_card: QWidget,
         detail_values: dict[str, QLabel],
+        detail_tables: QLabel | None = None,
+        detail_tables_card: QWidget | None = None,
     ) -> None:
         """Store the detail-pane widgets that this presenter updates.
 
@@ -50,11 +53,16 @@ class DetailPanelPresenter:
             detail_crop_card: Container of ``detail_crop``, hidden when there is no crop.
             detail_values: Value labels keyed by field name (Identifier, Page, Source,
                 Quality, Confidence, Formula, Molecular weight, InChIKey).
+            detail_tables: Rich-text label listing the table rows linked to the molecule;
+                each row links to ``table:<table id>:<row index>``.
+            detail_tables_card: Container of ``detail_tables``, hidden when there are none.
         """
         self._detail_structure = detail_structure
         self._detail_crop = detail_crop
         self._detail_crop_card = detail_crop_card
         self._detail_values = detail_values
+        self._detail_tables = detail_tables
+        self._detail_tables_card = detail_tables_card
 
     def selected_molecule(self, molecule_table: QTableView | None) -> ExtractedMolecule | None:
         """Return the currently selected molecule row from the active result table."""
@@ -68,8 +76,10 @@ class DetailPanelPresenter:
             return None
         return molecule_table.molecule_model().molecule_at(indexes[0].row())
 
-    def refresh_selected_detail(self, molecule_table: QTableView | None) -> None:
-        """Render detail widgets for the currently selected molecule."""
+    def refresh_selected_detail(
+        self, molecule_table: QTableView | None, result: ExtractionResult | None = None
+    ) -> None:
+        """Render detail widgets for the currently selected molecule of *result*."""
         molecule = self.selected_molecule(molecule_table)
         if molecule is None:
             self.clear_detail()
@@ -79,6 +89,16 @@ class DetailPanelPresenter:
         self._show_crop(molecule)
         for field_name, text in self._detail_text_values(molecule).items():
             self._detail_values[field_name].setText(text)
+        self._show_table_data(molecule, result)
+
+    def _show_table_data(self, molecule: ExtractedMolecule, result: ExtractionResult | None) -> None:
+        """List the molecule's linked table rows, or hide the card when there are none."""
+        if self._detail_tables is None:
+            return
+        text = table_data_html(molecule, result) if result is not None else ""
+        self._detail_tables.setText(text)
+        if self._detail_tables_card is not None:
+            self._detail_tables_card.setVisible(bool(text))
 
     def _show_structure(self, molecule: ExtractedMolecule) -> None:
         """Depict *molecule* in the structure label, or show a "No structure" placeholder."""
@@ -150,3 +170,33 @@ class DetailPanelPresenter:
         self._detail_crop_card.hide()
         for value in self._detail_values.values():
             value.setText("—")
+        if self._detail_tables is not None:
+            self._detail_tables.setText("")
+        if self._detail_tables_card is not None:
+            self._detail_tables_card.hide()
+
+
+def table_data_html(molecule: ExtractedMolecule, result: ExtractionResult) -> str:
+    """Rich text of every table row linked to *molecule*; "" when there are none."""
+    from ..table_review import molecule_rows
+
+    blocks = []
+    for table, row_index, link in molecule_rows(result, molecule.id):
+        if link.confirmed:
+            status = "confirmed"
+        elif link.ambiguous:
+            status = "one of several matches"
+        else:
+            status = "suggested" if link.method != "ocr" else "suggested (OCR match)"
+        heading = (
+            f'<a href="table:{html.escape(table.id)}:{row_index}"><b>'
+            f"{html.escape(table.name)}</b>, row {row_index + 1}</a> · {status}"
+        )
+        cells = [
+            f"<span style='color:#767e88'>{html.escape(header or f'Column {i + 1}')}:</span> "
+            f"{html.escape(value)}"
+            for i, (header, value) in enumerate(zip(table.columns, table.rows[row_index]))
+            if value and i != table.key_column
+        ]
+        blocks.append("<br>".join([heading, *cells]))
+    return "<br><br>".join(blocks)

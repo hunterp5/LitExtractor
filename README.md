@@ -8,6 +8,7 @@ LitExtractor is a desktop application for finding chemical structures and relate
 - Process figure–label coreferences by default to associate structure figures with labels; reactions are optional.
 - Review structures, SMILES, identifiers, source pages, formulas, molecular weights, and InChIKeys.
 - Select a molecule to view its structure, patent crop on a white canvas, and metadata in a fixed-width preview pane.
+- Read data tables (activity, yield, properties) and match their rows to structures by label, with a Tables tab to confirm, choose or correct each match.
 - Merge duplicate molecules by InChIKey.
 - Export molecule data to CSV, SDF, or SMILES.
 - Choose CPU or CUDA for model inference. CPU is available immediately; CUDA detection runs in the background after the window opens.
@@ -76,10 +77,24 @@ After an editable installation, the `litextractor` console command is also avail
 ## Use the application
 
 1. Open a PDF using **File → Open PDF** or the Open PDF control.
-2. Select the sources to process: figures, text, coreferences, or reactions.
+2. Select the sources to process: figures, text, coreferences, reactions, or data tables.
 3. Optionally set a page range, a molecule limit, and a device.
 4. Start extraction and review the results in the Molecules and Reactions tabs. Each extraction is kept in its own result tab; right-click a result tab and confirm to delete it.
-5. Export molecule results through **File → Export**. Exports use the currently active result tab.
+5. Review table data in the **Tables** tab (see below).
+6. Export molecule results through **File → Export**. Exports use the currently active result tab.
+
+### Table data
+
+Tables are read from the PDF's text layer while figures are detected. Tables printed across several pages, or as side-by-side panels repeating the same columns, are joined into one table with one row per compound. Tables of structures are not listed: their structures appear on the Molecules tab instead.
+
+Each row is matched to a structure by its key column (a header such as "Ex No", "Compound" or "Drug", else the column whose values match structure labels). Structure labels come from the text printed below each structure, or beside it in a table row, taken from the PDF's text layer, or read by OCR when the figure is a picture. The **Structure** column of the Tables tab shows each row's match:
+
+- a name: a suggested match; amber when it was found only after ignoring common OCR confusions (1/I/l, 0/O);
+- "*n* matches": several structures carry the label; right-click to choose one;
+- ✓ name: confirmed, or linked by hand;
+- —: no match; right-click to link a structure.
+
+Double-click a cell to correct it; correcting a key cell matches the row again. Right-click a column header to show that column on the Molecules table (as "Table 3 · IC50 (nM)") or to match rows by another column. The detail pane lists the table rows linked to the selected structure; click one to open it in the Tables tab.
 
 Each structure is read from exactly the box the molecule detector found; padding that box pulled neighbouring bonds and labels into the crop and made readings worse. Figure regions found by layout detection are widened by a fixed 8% before the figure is cropped, so structures at a figure's edge are not cut off. Table regions are not widened.
 

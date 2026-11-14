@@ -6,16 +6,16 @@ LitExtractor's job is to pull structures out of a PDF together with the table da
 with them (activity, yield, properties), so both can be reviewed and exported. Tables come from
 OpenChemIE's own table extraction, which reads the PDF's text layer.
 
-1. **Look at real output.** Run OpenChemIE's table extraction on the sample PDFs to see how
+1. **Look at real output** (done). Run OpenChemIE's table extraction on the sample PDFs to see how
    well rows and columns come through, since that decides how much correcting the UI must allow.
-2. **Data model and matching.** Store each table as its own record (raw cell text, title, page,
+2. **Data model and matching** (done). Store each table as its own record (raw cell text, title, page,
    crop image, key column). Keep links between table rows and molecules as separate records with
    how they were matched (exact, OCR-tolerant or manual) and whether the user confirmed them.
    Labels are normalized before matching; a label matching several molecules is flagged as
    ambiguous, never resolved silently.
-3. **Tables tab.** The table image beside its parsed grid, a link status per row, linking rows
-   by hand, chosen table columns shown on the molecule table ("T2 · IC50 (nM)"), and a table-data
-   card in the detail pane.
+3. **Tables tab** (done). The table image beside its parsed grid, a link status per row,
+   confirming, choosing and linking rows by hand, correcting cells, chosen table columns shown on
+   the molecule table ("Table 3 · IC50 (nM)"), and a table-data card in the detail pane.
 4. **Exports.** Wide (one row per molecule with the chosen columns), long (one row per molecule,
    table and column, with raw and parsed values) and each table on its own, including rows that
    matched no molecule.

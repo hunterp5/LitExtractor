@@ -259,6 +259,8 @@ class ExtractionResult:
         warnings: Non-fatal problems encountered during extraction.
         tables: Data tables found in the PDF.
         table_links: Pairings of table rows with molecules.
+        shown_table_columns: Table columns the user chose to show beside each molecule, as
+            ``(table id, column index)`` pairs, in the order chosen.
     """
 
     pdf_path: str
@@ -267,3 +269,4 @@ class ExtractionResult:
     warnings: list[str] = field(default_factory=list)
     tables: list[ExtractedTable] = field(default_factory=list)
     table_links: list[TableLink] = field(default_factory=list)
+    shown_table_columns: list[tuple[str, int]] = field(default_factory=list)

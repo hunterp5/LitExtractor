@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
@@ -127,6 +129,20 @@ class MoleculeTableModel(QAbstractTableModel):
         self._pixmaps: list[QPixmap | None] = []
         self._crop_pixmaps: list[QPixmap | None] = []
         self._quality_texts: list[str | None] = []
+        self._extra_headers: list[str] = []
+        self._extra_value: Callable[[ExtractedMolecule, int], str] | None = None
+
+    def set_extra_columns(
+        self, headers: list[str], value: Callable[[ExtractedMolecule, int], str] | None
+    ) -> None:
+        """Show extra text columns after the built-in ones (table columns chosen by the user).
+
+        ``value(molecule, i)`` returns the text of extra column *i* for a molecule.
+        """
+        self.beginResetModel()
+        self._extra_headers = list(headers)
+        self._extra_value = value
+        self.endResetModel()
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
         """Return the number of molecule rows (0 for any child index of a flat table)."""
@@ -135,10 +151,10 @@ class MoleculeTableModel(QAbstractTableModel):
         return len(self._rows)
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
-        """Return the number of columns defined by ``HEADERS``."""
+        """Return the number of built-in columns plus any extra (table) columns."""
         if parent.isValid():
             return 0
-        return len(HEADERS)
+        return len(HEADERS) + len(self._extra_headers)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):  # noqa: N802
         """Return the column title (horizontal) or 1-based row number (vertical)."""
@@ -146,6 +162,8 @@ class MoleculeTableModel(QAbstractTableModel):
             return None
         if orientation == Qt.Horizontal and 0 <= section < len(HEADERS):
             return HEADERS[section]
+        if orientation == Qt.Horizontal and 0 <= section - len(HEADERS) < len(self._extra_headers):
+            return self._extra_headers[section - len(HEADERS)]
         if orientation == Qt.Vertical:
             return str(section + 1)
         return None
@@ -226,7 +244,13 @@ class MoleculeTableModel(QAbstractTableModel):
             return f"{molecule.molecular_weight:.3f}"
         if column == COL_INCHI_KEY:
             return molecule.inchi_key
+        if column >= len(HEADERS) and self._extra_value is not None:
+            return self._extra_value(molecule, column - len(HEADERS))
         return ""
+
+    def row_of(self, molecule_id: str) -> int | None:
+        """Return the row showing the molecule with *molecule_id*, or None."""
+        return next((row for row, m in enumerate(self._rows) if m.id == molecule_id), None)
 
     def molecule_at(self, row: int) -> ExtractedMolecule | None:
         """Return the molecule at *row*, or ``None`` if the row is out of range."""

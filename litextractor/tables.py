@@ -418,43 +418,67 @@ def link_table_rows(
     row above (one compound listed with several indications). A row matching more than one
     molecule gets a link to each, all marked ambiguous.
     """
-    by_label = _molecule_labels(molecules)
-    by_folded: dict[str, list[ExtractedMolecule]] = {}
-    for label, matched in by_label.items():
-        if len(label) <= _SHORT_LABEL:
-            for molecule in matched:
-                group = by_folded.setdefault(label.translate(_OCR_FOLD), [])
-                if molecule not in group:
-                    group.append(molecule)
-
+    index = _LabelIndex(molecules)
     links: list[TableLink] = []
     for table in tables:
         if table.key_column is None:
-            table.key_column = detect_key_column(table, set(by_label))
+            table.key_column = detect_key_column(table, set(index.by_label))
+        links.extend(index.suggest(table))
+    return links
+
+
+def suggest_links(
+    table: ExtractedTable, molecules: list[ExtractedMolecule], rows: set[int] | None = None
+) -> list[TableLink]:
+    """Suggest links for the rows of one table (only *rows*, if given) by its key column."""
+    return _LabelIndex(molecules).suggest(table, rows)
+
+
+def row_keys(table: ExtractedTable) -> list[str]:
+    """The key-column text each row is matched by, blank cells continuing the row above."""
+    keys: list[str] = []
+    current = ""
+    for row in table.rows:
+        cell = row[table.key_column] if table.key_column is not None else ""
+        if cell:
+            current = cell
+        keys.append(current if (cell or any(row)) else "")
+    return keys
+
+
+class _LabelIndex:
+    """Molecules by normalized label, and short labels with OCR confusions folded."""
+
+    def __init__(self, molecules: list[ExtractedMolecule]) -> None:
+        self.by_label = _molecule_labels(molecules)
+        self.by_folded: dict[str, list[ExtractedMolecule]] = {}
+        for label, matched in self.by_label.items():
+            if len(label) <= _SHORT_LABEL:
+                for molecule in matched:
+                    group = self.by_folded.setdefault(label.translate(_OCR_FOLD), [])
+                    if molecule not in group:
+                        group.append(molecule)
+
+    def suggest(self, table: ExtractedTable, rows: set[int] | None = None) -> list[TableLink]:
         if table.key_column is None:
-            continue
-        current_key = ""
-        for row_index, row in enumerate(table.rows):
-            cell = row[table.key_column]
-            if cell:
-                current_key = cell
-            elif not any(row):
+            return []
+        links: list[TableLink] = []
+        for row_index, key in enumerate(row_keys(table)):
+            if not key or (rows is not None and row_index not in rows):
                 continue
-            if not current_key:
-                continue
-            candidates, method = _candidates(current_key, by_label, by_folded)
+            candidates, method = _candidates(key, self.by_label, self.by_folded)
             for molecule in candidates:
                 links.append(
                     TableLink(
                         table_id=table.id,
                         row_index=row_index,
                         molecule_id=molecule.id,
-                        label=current_key,
+                        label=key,
                         method=method,
                         ambiguous=len(candidates) > 1,
                     )
                 )
-    return links
+        return links
 
 
 def _candidates(

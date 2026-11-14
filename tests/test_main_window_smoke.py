@@ -58,12 +58,14 @@ def test_detail_pane_hides_missing_crop_and_aligns_metadata(qapp):
     assert window._detail_panel.findChild(QScrollArea) is not None
     assert window._detail_panel.findChild(QLabel, "DetailPanelTitle") is None
     cards = window._detail_panel.findChildren(QFrame, "DetailCard")
-    assert len(cards) == 3
+    assert len(cards) == 4
     card_titles = {
         label.text()
         for label in window._detail_panel.findChildren(QLabel, "DetailCardTitle")
     }
-    assert card_titles == {"Chemical structure", "Patent crop", "Molecule information"}
+    assert card_titles == {
+        "Chemical structure", "Patent crop", "Molecule information", "Table data"
+    }
     molecule = enrich_molecule(
         ExtractedMolecule(smiles="CCO", identifier="EtOH", page=2, source="text")
     )
@@ -73,6 +75,7 @@ def test_detail_pane_hides_missing_crop_and_aligns_metadata(qapp):
     )
 
     assert window._detail_crop_card.isHidden()
+    assert window._detail_tables_card.isHidden()
     assert window._detail_values["Identifier"].text() == "EtOH"
     assert window._detail_values["Page"].text() == "2"
     assert window._detail_values["Source"].text() == "text"

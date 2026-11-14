@@ -90,8 +90,8 @@ _USER_GUIDE_HTML = (
     "keeps track of your last folder so you can navigate quickly.</p>"
     "<p><b>2. Choose extraction sources</b><br>"
     "In the Extract panel, select which data sources to use: figures, text, "
-    "coreferences, and/or reactions. More sources improve coverage but may take "
-    "longer.</p>"
+    "coreferences, reactions and/or data tables. More sources improve coverage but may "
+    "take longer.</p>"
     "<p><b>3. Pick the page range and device</b><br>"
     "Set the first page and page count to process a subset of the PDF. Choose "
     "<b>CPU</b> or <b>CUDA (GPU)</b> when a compatible GPU is available. GPU is "
@@ -104,10 +104,16 @@ _USER_GUIDE_HTML = (
     "The main results tabs list molecules and reactions. Select a row to inspect the "
     "matching chemical structure, identifiers, source metadata, and extracted details "
     "in the detail pane.</p>"
-    "<p><b>6. Merge and clean results</b><br>"
+    "<p><b>6. Review table data</b><br>"
+    "The <b>Tables</b> tab shows each data table as printed beside its parsed rows. The "
+    "Structure column shows which structure each row was matched to by its label: amber "
+    "when the match needs a look, green once confirmed. Right-click a row to confirm, choose "
+    "or change its structure; double-click a cell to correct it. Right-click a column header "
+    "to show that column on the Molecules table.</p>"
+    "<p><b>7. Merge and clean results</b><br>"
     "Use the merge option to combine duplicates by InChIKey. This helps when the same "
     "molecule appears multiple times across pages or figure regions.</p>"
-    "<p><b>7. Export data</b><br>"
+    "<p><b>8. Export data</b><br>"
     "Use <b>File → Export CSV…</b>, <b>Export SDF…</b>, or <b>Export SMILES…</b> "
     "to save the extracted structures and metadata in a format suitable for further "
     "analysis or workflow integration.</p>"
@@ -166,6 +172,8 @@ class MainWindow(QMainWindow):
             detail_crop=self._detail_crop,
             detail_crop_card=self._detail_crop_card,
             detail_values=self._detail_values,
+            detail_tables=self._detail_tables,
+            detail_tables_card=self._detail_tables_card,
         )
         self._results_controller = ResultTabsController(
             parent=self,
@@ -283,6 +291,11 @@ class MainWindow(QMainWindow):
         self._corefs_checkbox.setChecked(True)
         self._reactions_checkbox = QCheckBox("Reactions")
         self._reactions_checkbox.setChecked(False)
+        self._tables_checkbox = QCheckBox("Data tables")
+        self._tables_checkbox.setChecked(True)
+        self._tables_checkbox.setToolTip(
+            "Read data tables (activity, yield, properties) and match their rows to structures."
+        )
         self._merge_checkbox = QCheckBox("Merge duplicates (InChIKey)")
         self._merge_checkbox.setChecked(True)
         for checkbox in (
@@ -290,6 +303,7 @@ class MainWindow(QMainWindow):
             self._text_checkbox,
             self._corefs_checkbox,
             self._reactions_checkbox,
+            self._tables_checkbox,
             self._merge_checkbox,
         ):
             group_layout.addWidget(checkbox)
@@ -440,6 +454,19 @@ class MainWindow(QMainWindow):
         fields_layout.setColumnStretch(1, 1)
         information_layout.addLayout(fields_layout)
         content_layout.addWidget(information_card)
+
+        self._detail_tables_card, tables_layout = _build_detail_card("Table data")
+        self._detail_tables = QLabel("")
+        self._detail_tables.setObjectName("DetailFieldValue")
+        self._detail_tables.setWordWrap(True)
+        self._detail_tables.setTextFormat(Qt.RichText)
+        self._detail_tables.setTextInteractionFlags(
+            Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse
+        )
+        self._detail_tables.linkActivated.connect(self._open_table_row)
+        tables_layout.addWidget(self._detail_tables)
+        self._detail_tables_card.hide()
+        content_layout.addWidget(self._detail_tables_card)
         content_layout.addStretch(1)
         scroll_area.setWidget(content)
         layout.addWidget(scroll_area, 1)
@@ -533,6 +560,7 @@ class MainWindow(QMainWindow):
             text=self._text_checkbox.isChecked(),
             corefs=self._corefs_checkbox.isChecked(),
             reactions=self._reactions_checkbox.isChecked(),
+            tables=self._tables_checkbox.isChecked(),
             merge_by_inchi=self._merge_checkbox.isChecked(),
             first_page=first_page,
             num_pages=page_count if page_count > 0 else None,
@@ -549,7 +577,9 @@ class MainWindow(QMainWindow):
             if not self._pdf_path:
                 return
         options = self._current_options()
-        if not (options.figures or options.text or options.reactions or options.corefs):
+        if not (
+            options.figures or options.text or options.reactions or options.corefs or options.tables
+        ):
             QMessageBox.information(self, APP_NAME, "Select at least one extraction source.")
             return
         self._extraction_controller.start_worker(
@@ -574,6 +604,7 @@ class MainWindow(QMainWindow):
             self._extraction_controller.handle_failed("Unexpected extraction result.")
             return
         result_tab = self._results_controller.add_result(result)
+        result_tab.table_data_changed.connect(self._refresh_selected_detail)
         self._set_active_result_tab(self._result_tabs.currentIndex())
         self._detail_panel.show()
         if result.molecules:
@@ -586,7 +617,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, "\n".join(result.warnings))
         self.status_label.setText(
             f"{Path(result.pdf_path).name}: {len(result.molecules)} molecule(s), "
-            f"{len(result.reactions)} reaction(s).{warnings_suffix}"
+            f"{len(result.reactions)} reaction(s), {len(result.tables)} table(s)."
+            f"{warnings_suffix}"
         )
 
     # ------------------------------------------------------------------ result tabs
@@ -632,7 +664,19 @@ class MainWindow(QMainWindow):
 
     def _refresh_selected_detail(self, *_args: object) -> None:
         """Show the selected molecule of the active tab in the detail pane."""
-        self._detail_presenter.refresh_selected_detail(self._active_molecule_table)
+        result = self._active_result_tab.result if self._active_result_tab is not None else None
+        self._detail_presenter.refresh_selected_detail(self._active_molecule_table, result)
+
+    def _open_table_row(self, link: str) -> None:
+        """Follow a "table:<id>:<row>" link from the detail pane to that row in the Tables tab."""
+        from .extraction_result_tab import TABLES_TAB
+
+        kind, _, rest = link.partition(":")
+        table_id, _, row = rest.rpartition(":")
+        if kind != "table" or self._active_result_tab is None or not row.isdigit():
+            return
+        self._active_result_tab.tabs.setCurrentIndex(TABLES_TAB)
+        self._active_result_tab.tables_view.show_table(table_id, int(row))
 
     # ------------------------------------------------------------------ export
 
