@@ -26,7 +26,6 @@ from typing import Any, Callable, Protocol
 
 from .cancellation import cancel_on_model_forward
 from .chemistry import prioritize_molecules
-from .crop_context import use_molecule_crop_margin
 from .compat_checkpoint import openchemie_checkpoint_loads
 from .extraction_coreference import apply_coref_identifiers
 from .extraction_errors import ExtractionCancelled
@@ -79,7 +78,7 @@ def merge_molecules_by_inchi(molecules: list[ExtractedMolecule]) -> list[Extract
     """Collapse records that share an InChIKey; keep records without one distinct.
 
     The first record of each group survives and absorbs the others' sources, pages,
-    identifiers, context, crop image, and highest score.
+    identifiers, context, crop image, and highest score and confidence.
     """
     merged: list[ExtractedMolecule] = []
     merged_index_by_key: dict[str, int] = {}
@@ -108,13 +107,20 @@ def merge_molecules_by_inchi(molecules: list[ExtractedMolecule]) -> list[Extract
             )
         if survivor.crop_png is None and molecule.crop_png:
             survivor.crop_png = molecule.crop_png
-        if survivor.score is None:
-            survivor.score = molecule.score
-        elif molecule.score is not None:
-            survivor.score = max(survivor.score, molecule.score)
+        survivor.score = _max_known(survivor.score, molecule.score)
+        survivor.confidence = _max_known(survivor.confidence, molecule.confidence)
         for page in molecule.page_numbers:
             survivor.add_page(page)
     return merged
+
+
+def _max_known(first: float | None, second: float | None) -> float | None:
+    """Return the larger of two optional values, or whichever one is known."""
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return max(first, second)
 
 
 def _figure_images_and_pages(figures: Any) -> tuple[list[Any], list[int | None]]:
@@ -257,18 +263,13 @@ class _ExtractionRun:
                 f"Reading structures in {len(self._figure_images)} figure(s)…"
             )
             with _openchemie_model_call(self._should_cancel):
-                with use_molecule_crop_margin(self._options.crop_margin):
-                    figure_results = self._client.extract_molecules_from_figures(
-                        self._figure_images, batch_size=self._options.batch_size
-                    )
+                figure_results = self._client.extract_molecules_from_figures(
+                    self._figure_images, batch_size=self._options.batch_size
+                )
             for result, page in zip(figure_results or [], figure_pages):
                 if isinstance(result, dict):
                     result["page"] = page
-            self.molecules.extend(
-                molecules_from_figure_results(
-                    figure_results, crop_margin=self._options.crop_margin
-                )
-            )
+            self.molecules.extend(molecules_from_figure_results(figure_results))
             self._apply_molecule_cap()
 
     def _run_text_stage(self) -> None:

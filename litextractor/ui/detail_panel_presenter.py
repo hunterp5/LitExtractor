@@ -49,7 +49,7 @@ class DetailPanelPresenter:
             detail_crop: Label showing the scaled patent crop.
             detail_crop_card: Container of ``detail_crop``, hidden when there is no crop.
             detail_values: Value labels keyed by field name (Identifier, Page, Source,
-                Quality, Formula, Molecular weight, InChIKey).
+                Quality, Confidence, Formula, Molecular weight, InChIKey).
         """
         self._detail_structure = detail_structure
         self._detail_crop = detail_crop
@@ -121,6 +121,7 @@ class DetailPanelPresenter:
         """Return the text for each detail field of *molecule*, using "—" for blanks."""
         # Imported lazily so application startup does not load RDKit.
         from ..chemistry import molecule_quality_score
+        from .molecule_table import format_confidence
 
         pages_text = "; ".join(str(page_number) for page_number in molecule.page_numbers) or "—"
         quality_text = f"{molecule_quality_score(molecule):.3f}"
@@ -134,6 +135,7 @@ class DetailPanelPresenter:
             "Page": pages_text,
             "Source": source_text or "—",
             "Quality": quality_text,
+            "Confidence": format_confidence(molecule) or "—",
             "Formula": molecule.formula or "—",
             "Molecular weight": molecular_weight_text,
             "InChIKey": molecule.inchi_key or "—",

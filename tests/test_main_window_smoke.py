@@ -256,7 +256,6 @@ def test_manual_checkbox_defaults_are_used(qapp):  # noqa: ARG001
     assert w._all_structures_checkbox.isChecked() is True
     assert w._first_page_spinbox.isEnabled() is False
     assert w._page_count_spinbox.isEnabled() is False
-    assert w._crop_margin_spinbox.value() == 0.0
     options = w._current_options()
     assert options.figures is True
     assert options.text is True
@@ -266,7 +265,6 @@ def test_manual_checkbox_defaults_are_used(qapp):  # noqa: ARG001
     assert options.first_page == 1
     assert options.num_pages is None
     assert options.max_molecules is None
-    assert options.crop_margin == 0.0
     w._all_pages_checkbox.setChecked(False)
     assert w._first_page_spinbox.isEnabled() is True
     assert w._page_count_spinbox.isEnabled() is True

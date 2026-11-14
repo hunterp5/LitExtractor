@@ -28,8 +28,11 @@ from litextractor.structure_dimensions import (
 )
 from litextractor.ui import molecule_table
 from litextractor.ui.molecule_table import (
+    COL_CONFIDENCE,
     COL_PATENT_CROP,
+    COL_SMILES,
     COL_STRUCTURE,
+    LOW_CONFIDENCE_TOOLTIP,
     MoleculeTableModel,
     MoleculeTableView,
     PatentCropDelegate,
@@ -148,3 +151,23 @@ def test_patent_crop_delegate_displays_consistent_aspect_preserving_thumbnails(q
         width = max(x for x, _ in red_pixels) - min(x for x, _ in red_pixels) + 1
         height = max(y for _, y in red_pixels) - min(y for _, y in red_pixels) + 1
         assert (width, height) == expected_size
+
+
+def test_confidence_column_flags_low_confidence_rows(qapp):
+    assert qapp is not None
+    model = MoleculeTableModel()
+    model.set_molecules(
+        [
+            ExtractedMolecule(smiles="CCO", confidence=0.87),
+            ExtractedMolecule(smiles="CCN", confidence=0.12),
+            ExtractedMolecule(smiles="CCC"),
+        ],
+        already_prioritized=True,
+    )
+
+    texts = [model.data(model.index(row, COL_CONFIDENCE)) for row in range(3)]
+    assert texts == ["0.87", "0.12 (low)", ""]
+    assert model.data(model.index(0, COL_CONFIDENCE), Qt.ForegroundRole) is None
+    assert model.data(model.index(1, COL_CONFIDENCE), Qt.ForegroundRole) is not None
+    assert model.data(model.index(1, COL_SMILES), Qt.ToolTipRole) == LOW_CONFIDENCE_TOOLTIP
+    assert model.data(model.index(0, COL_SMILES), Qt.ToolTipRole) is None

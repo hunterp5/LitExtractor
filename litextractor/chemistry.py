@@ -146,15 +146,17 @@ def _quality_score_for_validity(molecule: ExtractedMolecule, valid: bool) -> flo
 
 
 def prioritize_molecules(molecules: list[ExtractedMolecule]) -> list[ExtractedMolecule]:
-    """Rank valid, better-annotated molecules ahead of weaker candidates.
+    """Rank valid, confidently read, better-annotated molecules ahead of weaker candidates.
 
-    Ordering is by validity, then descending quality, then earliest page, then SMILES/molfile text.
+    Ordering is by validity, then low-confidence flag (flagged last), then descending quality,
+    then earliest page, then SMILES/molfile text.
     """
-    ranked: list[tuple[tuple[int, float, int, str], ExtractedMolecule]] = []
+    ranked: list[tuple[tuple[int, int, float, int, str], ExtractedMolecule]] = []
     for molecule in molecules:
         valid = _molecule_is_valid(molecule)
         sort_key = (
             0 if valid else 1,
+            1 if molecule.low_confidence else 0,
             -_quality_score_for_validity(molecule, valid),
             molecule.page_numbers[0] if molecule.page_numbers else 1_000_000,
             str(molecule.smiles or molecule.molfile or molecule.identifier or ""),

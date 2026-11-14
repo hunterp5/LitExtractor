@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, QSize, Qt
-from PySide6.QtGui import QPainter, QPalette, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QHeaderView,
     QStyledItemDelegate,
@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..chemistry import molecule_quality_score, parse_mol, prioritize_molecules
-from ..models import ExtractedMolecule
+from ..models import LOW_CONFIDENCE_THRESHOLD, ExtractedMolecule
 from ..structure_dimensions import (
     STRUCTURE_COLUMN_WIDTH,
     STRUCTURE_HEIGHT,
@@ -46,6 +46,7 @@ HEADERS = (
     "Page",
     "Source",
     "Quality",
+    "Confidence",
     "Formula",
     "MW",
     "InChIKey",
@@ -58,11 +59,28 @@ COL_IDENTIFIER = 3
 COL_PAGE = 4
 COL_SOURCE = 5
 COL_QUALITY = 6
-COL_FORMULA = 7
-COL_MOLECULAR_WEIGHT = 8
-COL_INCHI_KEY = 9
+COL_CONFIDENCE = 7
+COL_FORMULA = 8
+COL_MOLECULAR_WEIGHT = 9
+COL_INCHI_KEY = 10
 
-_RIGHT_ALIGNED_COLUMNS = (COL_PAGE, COL_QUALITY, COL_MOLECULAR_WEIGHT)
+_RIGHT_ALIGNED_COLUMNS = (COL_PAGE, COL_QUALITY, COL_CONFIDENCE, COL_MOLECULAR_WEIGHT)
+
+# Amber that stays readable on both light and dark table backgrounds.
+_LOW_CONFIDENCE_COLOR = QColor(217, 119, 6)
+LOW_CONFIDENCE_TOOLTIP = (
+    f"MolScribe's confidence is below {LOW_CONFIDENCE_THRESHOLD:.1f}. Readings this low are "
+    "often not a real structure (a protein image, a list of numbers) or a misread one; "
+    "check the patent crop before relying on it."
+)
+
+
+def format_confidence(molecule: ExtractedMolecule) -> str:
+    """Return the confidence as text, marked "(low)" when flagged; "" when unknown."""
+    if molecule.confidence is None:
+        return ""
+    text = f"{molecule.confidence:.2f}"
+    return f"{text} (low)" if molecule.low_confidence else text
 
 
 def render_structure_pixmap(molecule: ExtractedMolecule) -> QPixmap:
@@ -155,6 +173,10 @@ class MoleculeTableModel(QAbstractTableModel):
             if column in _RIGHT_ALIGNED_COLUMNS:
                 return int(Qt.AlignRight | Qt.AlignVCenter)
             return int(Qt.AlignLeft | Qt.AlignVCenter)
+        if role == Qt.ForegroundRole and column == COL_CONFIDENCE and molecule.low_confidence:
+            return _LOW_CONFIDENCE_COLOR
+        if role == Qt.ToolTipRole and molecule.low_confidence:
+            return LOW_CONFIDENCE_TOOLTIP
         if role == Qt.UserRole:
             return molecule
         return None
@@ -194,6 +216,8 @@ class MoleculeTableModel(QAbstractTableModel):
                 quality_text = f"{molecule_quality_score(molecule):.3f}"
                 self._quality_texts[row] = quality_text
             return quality_text
+        if column == COL_CONFIDENCE:
+            return format_confidence(molecule)
         if column == COL_FORMULA:
             return molecule.formula
         if column == COL_MOLECULAR_WEIGHT:

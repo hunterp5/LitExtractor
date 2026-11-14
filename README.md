@@ -77,11 +77,13 @@ After an editable installation, the `litextractor` console command is also avail
 
 1. Open a PDF using **File → Open PDF** or the Open PDF control.
 2. Select the sources to process: figures, text, coreferences, or reactions.
-3. Optionally set a page range, a molecule limit, a device, and the crop expansion.
+3. Optionally set a page range, a molecule limit, and a device.
 4. Start extraction and review the results in the Molecules and Reactions tabs. Each extraction is kept in its own result tab; right-click a result tab and confirm to delete it.
 5. Export molecule results through **File → Export**. Exports use the currently active result tab.
 
-Molecule crop expansion is **0% by default**: the detected molecule box is not enlarged before cropping. Users can choose a larger margin in the Extract panel. A separate fixed 8% context margin is applied earlier to parent figure regions for layout detection; it is not controlled by the molecule crop setting. Both crop stages use source-image pixels and clip at image boundaries.
+Each structure is read from exactly the box the molecule detector found; padding that box pulled neighbouring bonds and labels into the crop and made readings worse. Figure regions found by layout detection are widened by a fixed 8% before the figure is cropped, so structures at a figure's edge are not cut off. Table regions are not widened.
+
+The **Confidence** column shows MolScribe's confidence (0–1) in each structure it read. Values below 0.5 are marked "(low)", shown in amber, and ranked after confident results; in testing these were mostly non-structures (protein images, numbered lists) or misreads, so check the patent crop before relying on them. Confidence is included in CSV and SDF exports.
 
 The interface uses a single light theme and fixed structure sizes and fonts; there is no settings
 menu or saved preferences. File pickers retain their native operating-system appearance. Use

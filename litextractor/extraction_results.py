@@ -24,7 +24,6 @@ import math
 from typing import Any
 
 from .chemistry import enrich_molecule, parse_mol
-from .crop_context import DEFAULT_MOLECULE_CROP_MARGIN
 from .models import ExtractedMolecule, ExtractedReaction
 
 logger = logging.getLogger(__name__)
@@ -68,26 +67,6 @@ def parse_bbox(raw_bbox: Any) -> tuple[float, ...] | None:
     except (TypeError, ValueError):
         return None
     return values if len(values) >= 4 else None
-
-
-def _expand_bbox_for_crop(
-    bbox: tuple[float, ...] | None,
-    margin_fraction: float = DEFAULT_MOLECULE_CROP_MARGIN,
-) -> tuple[float, ...] | None:
-    """Expand a normalized molecule box; clipping occurs later during source-image cropping."""
-    if bbox is None or len(bbox) < 4:
-        return None
-    left, top, right, bottom = [float(value) for value in bbox[:4]]
-    if right <= left or bottom <= top:
-        return None
-    horizontal_padding = (right - left) * margin_fraction
-    vertical_padding = (bottom - top) * margin_fraction
-    return (
-        left - horizontal_padding,
-        top - vertical_padding,
-        right + horizontal_padding,
-        bottom + vertical_padding,
-    )
 
 
 def _crop_image_from_bbox(image: Any, bbox: tuple[float, ...] | None) -> Any:
@@ -170,14 +149,26 @@ def _mapping_entries(value: Any, description: str) -> list[dict]:
     return entries
 
 
-def molecules_from_figure_results(
-    figures: list[dict], *, crop_margin: float = DEFAULT_MOLECULE_CROP_MARGIN
-) -> list[ExtractedMolecule]:
+def _optional_float(raw_value: Any, description: str) -> float | None:
+    """Return *raw_value* as a finite float, or None (logging why) if it is missing or bad."""
+    if raw_value is None:
+        return None
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError, OverflowError):
+        value = math.nan
+    if not math.isfinite(value):
+        logger.warning("Ignoring invalid OpenChemIE molecule %s %r", description, raw_value)
+        return None
+    return value
+
+
+def molecules_from_figure_results(figures: list[dict]) -> list[ExtractedMolecule]:
     """Flatten OpenChemIE figure-molecule output into enriched molecule records.
 
-    Each molecule gets a PNG crop: the detector's own crop when present, otherwise a crop of
-    the full figure around its bounding box expanded by ``crop_margin``. The stored ``bbox`` is
-    the unexpanded detection, and ``figure_index`` is the figure's position in ``figures``.
+    Each molecule gets a PNG crop: the detector's own crop when present, otherwise the full
+    figure cropped to its bounding box. ``figure_index`` is the figure's position in
+    ``figures``, and ``confidence`` is MolScribe's confidence when it was reported.
     """
     molecules: list[ExtractedMolecule] = []
     for figure_index, figure in enumerate(figures or []):
@@ -189,26 +180,18 @@ def molecules_from_figure_results(
             if not isinstance(detected_molecule, dict):
                 continue
             detected_bbox = parse_bbox(detected_molecule.get("bbox"))
-            expanded_bbox = _expand_bbox_for_crop(
-                detected_bbox, margin_fraction=max(0.0, float(crop_margin))
-            )
             crop_image = detected_molecule.get("image")
-            if crop_image is None and full_figure_image is not None and expanded_bbox is not None:
-                crop_image = _crop_image_from_bbox(full_figure_image, expanded_bbox)
             if crop_image is None and detected_bbox is not None and full_figure_image is not None:
                 crop_image = _crop_image_from_bbox(full_figure_image, detected_bbox)
-            raw_score = detected_molecule.get("score")
-            try:
-                score = float(raw_score) if raw_score is not None else None
-            except (TypeError, ValueError, OverflowError):
-                logger.warning("Ignoring invalid OpenChemIE molecule score %r", raw_score)
-                score = None
             molecule = ExtractedMolecule(
                 smiles=str(detected_molecule.get("smiles") or ""),
                 molfile=str(detected_molecule.get("molfile") or ""),
                 source="figure",
                 page=page,
-                score=score,
+                score=_optional_float(detected_molecule.get("score"), "score"),
+                confidence=_optional_float(
+                    detected_molecule.get("confidence"), "confidence"
+                ),
                 bbox=detected_bbox,
                 figure_index=figure_index,
                 crop_png=image_to_png_bytes(crop_image),

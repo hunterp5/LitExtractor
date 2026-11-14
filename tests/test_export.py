@@ -79,6 +79,31 @@ def test_write_sdf_skips_unkekulizable_records_and_keeps_the_rest(tmp_path):
     assert records[0].GetProp("MW") == "46.069"
 
 
+def test_exports_include_confidence_and_low_confidence_flag(tmp_path):
+    from rdkit import Chem
+
+    shaky = enrich_molecule(ExtractedMolecule(smiles="CCN", identifier="2", confidence=0.21))
+    sure = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="1", confidence=0.9))
+    unknown = _ethanol()
+
+    rows = molecule_export_rows([shaky, sure, unknown])
+    assert [(row["Confidence"], row["Low confidence"]) for row in rows] == [
+        ("0.210", "yes"),
+        ("0.900", ""),
+        ("", ""),
+    ]
+    csv_path = tmp_path / "out.csv"
+    write_csv(csv_path, [shaky])
+    assert csv_path.read_text(encoding="utf-8").splitlines()[0].count("Low confidence") == 1
+
+    sdf_path = tmp_path / "out.sdf"
+    write_sdf(sdf_path, [shaky, unknown])
+    records = list(Chem.SDMolSupplier(str(sdf_path)))
+    assert records[0].GetProp("Confidence") == "0.210"
+    assert records[0].GetProp("LowConfidence") == "yes"
+    assert not records[1].HasProp("Confidence")
+
+
 def test_sdf_status_message_reports_skipped_records():
     from litextractor.ui.main_window import _sdf_success_message
 

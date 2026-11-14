@@ -18,11 +18,12 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
-from numbers import Integral, Real
+from numbers import Integral
 
-from .crop_context import DEFAULT_MOLECULE_CROP_MARGIN
+#: MolScribe confidences below this are flagged. On sample papers, non-structures (protein
+#: ribbons, numbered lists, reaction arrows) scored 0.0 to 0.5 and real structures mostly 0.8+.
+LOW_CONFIDENCE_THRESHOLD = 0.5
 
 
 @dataclass
@@ -40,7 +41,6 @@ class ExtractOptions:
         max_molecules: Cap on molecules kept; ``None`` or ``0`` means unlimited.
         batch_size: Batch size for model inference.
         device: Torch device name, e.g. ``"cpu"`` or ``"cuda"``; normalized to lowercase.
-        crop_margin: Fractional margin (0 to 0.5) added around molecule crops.
     """
 
     figures: bool = True
@@ -53,7 +53,6 @@ class ExtractOptions:
     max_molecules: int | None = None
     batch_size: int = 16
     device: str = "cpu"
-    crop_margin: float = DEFAULT_MOLECULE_CROP_MARGIN
 
     def __post_init__(self) -> None:
         """Validate and normalize the options on construction."""
@@ -84,12 +83,6 @@ class ExtractOptions:
         if self.batch_size < 1:
             raise ValueError("batch_size must be at least 1")
 
-        if isinstance(self.crop_margin, bool) or not isinstance(self.crop_margin, Real):
-            raise TypeError("crop_margin must be a number")
-        self.crop_margin = float(self.crop_margin)
-        if not math.isfinite(self.crop_margin) or not 0 <= self.crop_margin <= 0.5:
-            raise ValueError("crop_margin must be finite and between 0 and 0.5")
-
         if not isinstance(self.device, str) or not self.device.strip():
             raise ValueError("device must be a non-empty string")
         self.device = self.device.strip().lower()
@@ -104,7 +97,9 @@ class ExtractedMolecule:
         molfile: Optional MDL molfile block (may be filled in during enrichment).
         source: Origin of the first detection, e.g. ``"figure"`` or ``"text"``.
         page: Earliest known 1-based page number; kept in sync with ``pages``.
-        score: Confidence or quality score from extraction, if available.
+        score: Detector score for the structure's bounding box, if available.
+        confidence: MolScribe's confidence (0 to 1) in the structure it read, if available.
+            Below :data:`LOW_CONFIDENCE_THRESHOLD` the reading is flagged as low confidence.
         identifier: Label or name found near the structure (e.g. compound number).
         formula: Molecular formula computed by RDKit.
         molecular_weight: Molecular weight computed by RDKit.
@@ -124,6 +119,7 @@ class ExtractedMolecule:
     source: str = "figure"
     page: int | None = None
     score: float | None = None
+    confidence: float | None = None
     identifier: str = ""
     formula: str = ""
     molecular_weight: float | None = None
@@ -142,6 +138,11 @@ class ExtractedMolecule:
         self.pages = list(self.page_numbers)
         if self.pages:
             self.page = self.pages[0]
+
+    @property
+    def low_confidence(self) -> bool:
+        """True when MolScribe reported a confidence below :data:`LOW_CONFIDENCE_THRESHOLD`."""
+        return self.confidence is not None and self.confidence < LOW_CONFIDENCE_THRESHOLD
 
     @property
     def page_numbers(self) -> tuple[int, ...]:

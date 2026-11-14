@@ -125,7 +125,7 @@ def test_figure_results_enrich_ethanol():
     assert recs[0].molecular_weight == pytest.approx(46.069, abs=0.05)
 
 
-def test_figure_results_expand_bbox_before_crop():
+def test_figure_results_crop_the_detected_box_and_keep_confidence():
     import numpy as np
 
     full_image = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -141,13 +141,13 @@ def test_figure_results_expand_bbox_before_crop():
                         "smiles": "CCO",
                         "molfile": "",
                         "score": 0.5,
+                        "confidence": 0.31,
                         "bbox": (0.25, 0.25, 0.75, 0.75),
                         "image": None,
                     }
                 ],
             }
         ],
-        crop_margin=0.18,
     )
 
     import io
@@ -155,12 +155,13 @@ def test_figure_results_expand_bbox_before_crop():
     from PIL import Image
 
     assert len(recs) == 1
-    # The stored box is the detection itself (used for label matching); only the crop grows.
     assert recs[0].bbox == pytest.approx((0.25, 0.25, 0.75, 0.75))
     assert recs[0].figure_index == 0
+    assert recs[0].confidence == pytest.approx(0.31)
+    assert recs[0].low_confidence is True
     assert recs[0].crop_png is not None
     with Image.open(io.BytesIO(recs[0].crop_png)) as crop:
-        assert crop.size == (68, 68)
+        assert crop.size == (50, 50)
 
 
 def test_figure_results_do_not_add_synthetic_border_to_existing_crop():
@@ -188,7 +189,6 @@ def test_figure_results_do_not_add_synthetic_border_to_existing_crop():
                 ],
             }
         ],
-        crop_margin=0.18,
     )
 
     assert len(recs) == 1
@@ -227,7 +227,6 @@ def test_figure_results_prefer_existing_molecule_crop_over_tighter_figure_crop()
                 ],
             }
         ],
-        crop_margin=0.18,
     )
 
     assert len(recs) == 1
@@ -237,7 +236,7 @@ def test_figure_results_prefer_existing_molecule_crop_over_tighter_figure_crop()
         assert np.array_equal(np.asarray(img), existing_crop)
 
 
-def test_figure_crop_uses_only_real_pixels_at_source_image_boundary():
+def test_figure_crop_is_the_detected_box_without_padding():
     import io
 
     import numpy as np
@@ -262,15 +261,16 @@ def test_figure_crop_uses_only_real_pixels_at_source_image_boundary():
                 ],
             }
         ],
-        crop_margin=0.28,
     )
 
     assert len(recs) == 1
     assert recs[0].bbox == pytest.approx((0.04, 0.03, 0.30, 0.24))
+    assert recs[0].confidence is None
+    assert recs[0].low_confidence is False
     assert recs[0].crop_png is not None
     with Image.open(io.BytesIO(recs[0].crop_png)) as img:
-        assert img.size == (45, 36)
-        assert np.array_equal(np.asarray(img)[0, 0], full_image[0, 0])
+        assert img.size == (32, 26)
+        assert np.array_equal(np.asarray(img), full_image[3:29, 4:36])
 
 
 def test_text_span_becomes_identifier_and_smiles():
@@ -390,7 +390,6 @@ def test_merge_by_inchi_combines_and_sorts_all_provenance():
         ("num_pages", -1, ValueError, "num_pages must be non-negative"),
         ("max_molecules", -1, ValueError, "max_molecules must be non-negative"),
         ("batch_size", 0, ValueError, "batch_size must be at least 1"),
-        ("crop_margin", 0.6, ValueError, "crop_margin must be finite"),
     ],
 )
 def test_extract_options_reject_invalid_ranges(option, value, error, message):
@@ -495,48 +494,90 @@ def test_coreference_extraction_is_skipped_when_figures_find_no_molecules():
     assert result.molecules == []
 
 
-def test_extract_from_pdf_uses_selected_margin_for_openchemie_crop_and_resets_it():
-    import io
+def test_moldetect_crops_are_clamped_to_the_figure_and_skip_empty_boxes():
+    import numpy as np
+
+    from litextractor.compat_figures import _clean_bbox_output_clamped
+
+    figure = np.arange(100 * 100 * 3, dtype=np.uint32).reshape(100, 100, 3).astype(np.uint8)
+    detections = [
+        {"category": "[Mol]", "bbox": (0.25, 0.25, 0.75, 0.75), "score": 0.9},
+        # Starts outside the figure; upstream's int() slicing wraps this to the far edge.
+        {"category": "[Mol]", "bbox": (-0.05, -0.05, 0.10, 0.10), "score": 0.8},
+        {"category": "[Mol]", "bbox": (0.5, 0.5, 0.5, 0.9), "score": 0.7},  # empty
+        {"category": "[Txt]", "bbox": (0.1, 0.1, 0.2, 0.2), "score": 0.9},
+    ]
+
+    results, crops, references = _clean_bbox_output_clamped([figure], [detections])
+
+    assert [crop.shape for crop in crops] == [(50, 50, 3), (10, 10, 3)]
+    assert np.array_equal(crops[0], figure[25:75, 25:75])
+    assert np.array_equal(crops[1], figure[0:10, 0:10])
+    assert [molecule["score"] for molecule in results[0]["molecules"]] == [0.9, 0.8]
+    assert references == results[0]["molecules"]
+
+
+def test_figure_molecule_reading_requests_molscribe_confidence(monkeypatch):
+    import sys
+    import types
 
     import numpy as np
-    from PIL import Image
 
-    from litextractor.compat_figures import _clean_bbox_output_with_context
+    from litextractor.compat_figures import _extract_molecules_from_figures_with_confidence
 
-    assert ExtractOptions().crop_margin == 0.0
+    fake_interface = types.ModuleType("openchemie.interface")
+    fake_interface.convert_to_cv2 = np.asarray
+    monkeypatch.setitem(sys.modules, "openchemie", types.ModuleType("openchemie"))
+    monkeypatch.setitem(sys.modules, "openchemie.interface", fake_interface)
+    calls: list[dict] = []
 
-    class CropMarginClient(FakeClient):
-        def extract_molecules_from_figures(self, figures, **kwargs):
-            del figures, kwargs
-            image = np.zeros((100, 100, 3), dtype=np.uint8)
-            detections = [[{"category": "[Mol]", "bbox": (0.25, 0.25, 0.75, 0.75), "score": 0.9}]]
-            results, _, _ = _clean_bbox_output_with_context([image], detections)
-            return results
+    class FakeMolScribe:
+        def predict_images(self, images, **kwargs):
+            calls.append(kwargs)
+            return [{"smiles": "CCO", "molfile": "", "confidence": 0.42} for _ in images]
 
-    result = extract_from_pdf(
-        "dummy.pdf",
-        ExtractOptions(
-            figures=True,
-            text=False,
-            corefs=False,
-            reactions=False,
-            merge_by_inchi=False,
-            crop_margin=0.20,
-        ),
-        client=CropMarginClient(),
+    class FakeOpenChemIE:
+        molscribe = FakeMolScribe()
+
+        def extract_molecule_bboxes_from_figures(self, figures, batch_size):
+            return [[{"category": "[Mol]", "bbox": (0.1, 0.1, 0.9, 0.9), "score": 0.9}]] * len(
+                figures
+            )
+
+    figures = [np.zeros((20, 20, 3), dtype=np.uint8)] * 2
+    results = _extract_molecules_from_figures_with_confidence(
+        FakeOpenChemIE(), figures, batch_size=4
     )
 
-    assert len(result.molecules) == 1
-    assert result.molecules[0].crop_png is not None
-    with Image.open(io.BytesIO(result.molecules[0].crop_png)) as crop:
-        assert crop.size == (70, 70)
+    assert calls == [{"return_confidence": True, "batch_size": 4}]
+    assert [m["confidence"] for result in results for m in result["molecules"]] == [0.42, 0.42]
 
-    default_figure, default_crops, _ = _clean_bbox_output_with_context(
-        [np.zeros((100, 100, 3), dtype=np.uint8)],
-        [[{"category": "[Mol]", "bbox": (0.25, 0.25, 0.75, 0.75)}]],
-    )
-    assert default_figure
-    assert default_crops[0].shape == (50, 50, 3)
+
+def test_merge_keeps_the_highest_known_confidence():
+    from litextractor.chemistry import enrich_molecule
+    from litextractor.extraction import merge_molecules_by_inchi
+
+    first = enrich_molecule(ExtractedMolecule(smiles="CCO", page=1, confidence=None))
+    second = enrich_molecule(ExtractedMolecule(smiles="OCC", page=2, confidence=0.4))
+    third = enrich_molecule(ExtractedMolecule(smiles="C(O)C", page=3, confidence=0.9))
+
+    merged = merge_molecules_by_inchi([first, second, third])
+
+    assert len(merged) == 1
+    assert merged[0].confidence == pytest.approx(0.9)
+    assert merged[0].low_confidence is False
+
+
+def test_low_confidence_molecules_rank_after_confident_ones():
+    from litextractor.chemistry import enrich_molecule, prioritize_molecules
+
+    shaky = enrich_molecule(ExtractedMolecule(smiles="CCO", identifier="1", confidence=0.2))
+    sure = enrich_molecule(ExtractedMolecule(smiles="CCN", confidence=0.9))
+    unknown = enrich_molecule(ExtractedMolecule(smiles="CCC"))
+
+    ranked = prioritize_molecules([shaky, sure, unknown])
+
+    assert ranked[-1] is shaky
 
 
 def test_extract_from_pdf_reports_global_page_for_sliced_pdf(tmp_path):

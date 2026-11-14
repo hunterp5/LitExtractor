@@ -154,27 +154,6 @@ def test_transformers_torch_load_gate_is_scoped(monkeypatch):
     assert calls == ["checked"]
 
 
-def test_moldetect_crop_expansion_uses_real_context_pixels():
-    import numpy as np
-
-    from litextractor.compat_figures import _clean_bbox_output_with_context
-
-    figure = np.zeros((100, 100, 3), dtype=np.uint8)
-    figure[45:55, 82:86] = (255, 0, 0)  # edge atom outside the original x2=0.80 box
-    detection = {"category": "[Mol]", "bbox": (0.2, 0.2, 0.8, 0.8), "score": 0.9}
-
-    results, crops, references = _clean_bbox_output_with_context(
-        [figure], [[detection]], margin_fraction=0.18
-    )
-
-    assert len(results) == len(crops) == len(references) == 1
-    crop = crops[0]
-    assert crop.shape == (82, 82, 3)
-    assert np.any(np.all(crop == (255, 0, 0), axis=2))
-    assert np.array_equal(crop[0, 0], figure[9, 9])
-    assert references[0]["image"] is crop
-
-
 def test_parent_figure_crop_expansion_uses_page_pixels_and_clips_at_page_edge():
     import layoutparser as lp
     import numpy as np
@@ -217,6 +196,7 @@ def test_prepare_openchemie_imports_applies_patches_in_order(monkeypatch):
         "patch_openchemie_layout_crop_context",
         "patch_openchemie_figure_fallback",
         "patch_openchemie_molecule_crops",
+        "patch_openchemie_molecule_confidence",
     )
     for name in ordered:
         monkeypatch.setattr(openchemie_compat, name, lambda name=name: calls.append(name))
@@ -281,3 +261,41 @@ def test_batched_rxnscribe_predictions_use_their_own_images(monkeypatch):
     for kind in ("coref", "bbox", "reaction"):
         assert [image for seen_kind, image in seen if seen_kind == kind] == images
 
+
+def test_layout_context_widens_figure_blocks_but_not_table_blocks(monkeypatch):
+    import sys
+    import types
+
+    import layoutparser as lp
+    import numpy as np
+
+    from litextractor import compat_figures
+
+    seen: dict[str, object] = {}
+
+    class FakeTableExtractor:
+        def __init__(self):
+            self.img = np.zeros((100, 100, 3), dtype=np.uint8)
+            figure = lp.TextBlock(lp.Rectangle(20, 20, 70, 70), type="Figure")
+            table = lp.TextBlock(lp.Rectangle(20, 20, 70, 70), type="Table")
+            self.blocks = {"figure": lp.Layout([figure]), "table": lp.Layout([table])}
+
+        def extract_figure_information(self):
+            seen["figure"] = self.blocks["figure"][0].coordinates
+
+        def extract_table_information(self):
+            seen["table"] = self.blocks["table"][0].coordinates
+
+    fake_module = types.ModuleType("openchemie.tableextractor")
+    fake_module.TableExtractor = FakeTableExtractor
+    monkeypatch.setitem(sys.modules, "openchemie", types.ModuleType("openchemie"))
+    monkeypatch.setitem(sys.modules, "openchemie.tableextractor", fake_module)
+
+    compat_figures.patch_openchemie_layout_crop_context()
+    extractor = FakeTableExtractor()
+    extractor.extract_figure_information()
+    extractor.extract_table_information()
+
+    assert seen["figure"] == (16, 16, 74, 74)
+    assert seen["table"] == (20, 20, 70, 70)
+    assert extractor.blocks["figure"][0].coordinates == (20, 20, 70, 70)

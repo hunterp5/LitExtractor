@@ -30,7 +30,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -51,7 +50,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..crop_context import DEFAULT_MOLECULE_CROP_MARGIN
 from ..export import write_csv, write_sdf, write_smi
 from ..models import ExtractOptions, ExtractedMolecule, ExtractionResult
 from ..structure_dimensions import DETAIL_STRUCTURE_HEIGHT
@@ -79,6 +77,7 @@ _DETAIL_FIELD_NAMES = (
     "Page",
     "Source",
     "Quality",
+    "Confidence",
     "Formula",
     "Molecular weight",
     "InChIKey",
@@ -347,7 +346,7 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_processing_group(self) -> QGroupBox:
-        """Build the compute-device selector and the molecule crop-expansion control."""
+        """Build the compute-device selector."""
         group = QGroupBox("Processing")
         form = QFormLayout(group)
         form.setSpacing(4)
@@ -360,17 +359,6 @@ class MainWindow(QMainWindow):
         self._device_combobox.addItem("CPU", "cpu")
         self._device_combobox.activated.connect(self._mark_device_selection_touched)
         form.addRow("Device:", self._device_combobox)
-
-        self._crop_margin_spinbox = QDoubleSpinBox()
-        self._crop_margin_spinbox.setRange(0.0, 50.0)
-        self._crop_margin_spinbox.setDecimals(1)
-        self._crop_margin_spinbox.setSingleStep(1.0)
-        self._crop_margin_spinbox.setSuffix("%")
-        self._crop_margin_spinbox.setValue(DEFAULT_MOLECULE_CROP_MARGIN * 100.0)
-        self._crop_margin_spinbox.setToolTip(
-            "Expand each detection box by this percentage in every direction before cropping."
-        )
-        form.addRow("Crop expansion:", self._crop_margin_spinbox)
         return group
 
     def _build_action_buttons(self) -> QHBoxLayout:
@@ -550,7 +538,6 @@ class MainWindow(QMainWindow):
             num_pages=page_count if page_count > 0 else None,
             max_molecules=max_structures if max_structures > 0 else None,
             device=str(self._device_combobox.currentData() or "cpu"),
-            crop_margin=max(0.0, float(self._crop_margin_spinbox.value()) / 100.0),
         )
 
     # ------------------------------------------------------------------ extraction
