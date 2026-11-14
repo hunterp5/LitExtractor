@@ -50,6 +50,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..excel_export import write_xlsx
 from ..export import write_csv, write_sdf, write_smi
 from ..table_export import write_long_csv, write_table_csvs
 from ..models import ExtractOptions, ExtractedMolecule, ExtractionResult
@@ -228,6 +229,9 @@ class MainWindow(QMainWindow):
                     triggered=self.open_folder)
         )
         file_menu.addSeparator()
+        file_menu.addAction(
+            QAction("Export &Excel…", self, shortcut="Ctrl+E", triggered=self.export_excel)
+        )
         file_menu.addAction(QAction("Export &CSV…", self, triggered=self.export_csv))
         file_menu.addAction(QAction("Export S&DF…", self, triggered=self.export_sdf))
         file_menu.addAction(QAction("Export S&MILES…", self, triggered=self.export_smi))
@@ -816,6 +820,34 @@ class MainWindow(QMainWindow):
             "SMILES files (*.smi *.txt)",
             write_smi,
             lambda path, _result, _total: f"Wrote {Path(path).name}",
+        )
+
+    def export_excel(self) -> None:
+        """Export the active result as an Excel workbook: molecules with pictures, table data,
+        each table as printed, and reactions."""
+        result = self._active_result()
+        molecules = self._molecules_to_export()
+        if result is None or molecules is None:
+            return
+        default = str(Path(self._last_dir) / f"{Path(result.pdf_path).stem}.xlsx")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Excel", default, "Excel workbooks (*.xlsx)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".xlsx"):
+            path += ".xlsx"
+        try:
+            counts = write_xlsx(path, result, molecules)
+        except Exception as exc:
+            logger.exception("Could not export Excel to %s", path)
+            QMessageBox.critical(self, APP_NAME, f"Could not export to:\n{path}\n\n{exc}")
+            return
+        self._last_dir = str(Path(path).parent)
+        sheets = len(counts)
+        self.status_label.setText(
+            f"Wrote {Path(path).name}: {counts.get('Molecules', 0)} molecule(s), "
+            f"{sheets} sheet(s)"
         )
 
     def _result_with_tables(self) -> ExtractionResult | None:

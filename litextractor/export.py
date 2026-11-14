@@ -33,7 +33,11 @@ logger = logging.getLogger(__name__)
 
 
 def molecule_export_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, str]]:
-    """Tabular fields used by CSV export and the results table."""
+    """Tabular fields used by CSV export and the results table.
+
+    MolDetect's detection "score" is not exported: it is the same placeholder value (2011) for
+    every structure. MolScribe's confidence is the per-structure measure.
+    """
     rows: list[dict[str, str]] = []
     for molecule in molecules:
         rows.append(
@@ -42,7 +46,6 @@ def molecule_export_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, s
                 "Identifier": molecule.identifier,
                 "Page": "; ".join(str(page) for page in molecule.page_numbers),
                 "Source": "; ".join(molecule.sources) if molecule.sources else molecule.source,
-                "Score": "" if molecule.score is None else f"{molecule.score:.3f}",
                 "Confidence": "" if molecule.confidence is None else f"{molecule.confidence:.3f}",
                 "Low confidence": "yes" if molecule.low_confidence else "",
                 "Formula": molecule.formula,
@@ -83,7 +86,6 @@ def write_csv(
         "Identifier",
         "Page",
         "Source",
-        "Score",
         "Confidence",
         "Low confidence",
         "Formula",
@@ -158,8 +160,6 @@ def _set_sdf_properties(rdkit_mol, molecule: ExtractedMolecule) -> None:
     rdkit_mol.SetProp(
         "Source", "; ".join(molecule.sources) if molecule.sources else molecule.source
     )
-    if molecule.score is not None:
-        rdkit_mol.SetProp("Score", f"{molecule.score:.3f}")
     if molecule.confidence is not None:
         rdkit_mol.SetProp("Confidence", f"{molecule.confidence:.3f}")
         rdkit_mol.SetProp("LowConfidence", "yes" if molecule.low_confidence else "no")

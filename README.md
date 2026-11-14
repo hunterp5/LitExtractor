@@ -12,7 +12,7 @@ LitExtractor is a desktop application for finding chemical structures and relate
 - Extract several PDFs, or a whole folder, in one go; each gets its own result tab.
 - Turn systematic chemical names in the text into structures with OPSIN (trade names such as "Gefitinib" stay names).
 - Merge duplicate molecules by InChIKey.
-- Export molecule data to CSV, SDF, or SMILES, and table data as a long CSV or as each table as printed.
+- Export everything as one Excel workbook (with a picture of each structure), or molecules to CSV, SDF or SMILES and table data as a long CSV or each table as printed.
 - Choose CPU or CUDA for model inference. CPU is available immediately; CUDA detection runs in the background after the window opens.
 - A simple centered workspace message shows when to open a PDF and reports initial extraction progress.
 - View recommended software and research citations from **Help → Citations**.
@@ -94,7 +94,7 @@ After an editable installation, the `litextractor` console command is also avail
 3. Optionally set a page range and a device.
 4. Start extraction and review the results in the Molecules, Tables and Reactions tabs (Reactions appears only when reactions were extracted). Each extraction is kept in its own result tab; right-click a result tab and confirm to delete it.
 5. Review table data in the **Tables** tab (see below).
-6. Export molecule results through **File → Export**. Exports use the currently active result tab.
+6. Export through the **File** menu; exports use the currently active result tab. **Export Excel…** (Ctrl+E) writes one workbook with sheets for the molecules (a picture of each structure, the CSV columns and any table columns you chose to show), the table data in long form, each table as printed (unmatched rows included) and reactions when there are any. Values are written as text or numbers, never as formulas, so a printed value such as "=45 nM" stays as printed.
 
 ### Table data
 
@@ -111,7 +111,7 @@ Double-click the table image to open it full size in a zoomable window (Ctrl+scr
 
 A table whose columns are several lists of compound names (for example "Reversible" beside "Irreversible") gets no key column, because pairing its names by row would be wrong; choose one by hand if its rows do describe one compound each.
 
-Table data is exported three ways from the **File** menu:
+Besides the Excel workbook, table data is exported three ways from the **File** menu:
 
 - **Export CSV / Export SDF**: the columns shown on the Molecules table are added to each molecule (empty while a row's match is ambiguous).
 - **Export table data (long CSV)**: one line per structure, table row and column, with the value as printed, a parsed qualifier, number and unit where the value is a plain measurement ("<0.1" in an "IC50 (nM)" column gives "<", 0.1, nM), and how the row was linked. Unlinked rows are left out.
