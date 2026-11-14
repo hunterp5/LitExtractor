@@ -288,7 +288,7 @@ def patch_openchemie_layout_crop_context() -> None:
     TableExtractor._litextractor_layout_context = True
 
 
-def _whole_page_figures(pages: list) -> list[dict]:
+def _whole_page_figures(pages) -> list[dict]:
     """One figure per page, covering the whole page (zero-based ``page``)."""
     import numpy as np
     from PIL import Image
@@ -328,6 +328,25 @@ def patch_openchemie_figure_fallback() -> None:
     TableExtractor._litextractor_page_fallback = True
 
 
+#: Pages rendered at a time. A page at 200 dpi is about 12 MB, so rendering a 300-page patent
+#: at once would hold several GB; a few at a time keeps memory flat.
+RENDER_BATCH_PAGES = 8
+
+
+def rendered_pages(pdf: str, num_pages: int | None = None):
+    """Yield ``(zero-based index, page image)`` for the first *num_pages* pages (all if None),
+    rendering a few pages at a time so only those are held in memory."""
+    import pdf2image
+
+    total = int(pdf2image.pdfinfo_from_path(pdf)["Pages"])
+    count = min(total, num_pages) if num_pages else total
+    for start in range(0, count, RENDER_BATCH_PAGES):
+        last = min(start + RENDER_BATCH_PAGES, count)
+        batch = pdf2image.convert_from_path(pdf, first_page=start + 1, last_page=last)
+        for offset, page in enumerate(batch):
+            yield start + offset, page
+
+
 def _extract_figures_and_tables_from_pdf(self, pdf, num_pages=None):
     """Detect figures and tables in one pass over the pages (zero-based ``page`` in both).
 
@@ -335,11 +354,8 @@ def _extract_figures_and_tables_from_pdf(self, pdf, num_pages=None):
     (a table whose caption sits far above its header holds drawings and counts as a figure),
     then discards the rest. This keeps them. Figures, images and cell boxes are as upstream
     returns them with ``output_bbox=True``; with no figure found anywhere, each whole page is
-    one figure.
+    one figure. Pages are rendered a few at a time (see :func:`rendered_pages`).
     """
-    import pdf2image
-
-    pages = pdf2image.convert_from_path(pdf, last_page=num_pages)
     extractor = self.tableextractor
     extractor.set_pdf_file(pdf)
     extractor.set_output_image(True)
@@ -349,7 +365,7 @@ def _extract_figures_and_tables_from_pdf(self, pdf, num_pages=None):
     extractor.model = self.pdfparser
     figures: list[dict] = []
     tables: list[dict] = []
-    for page_index, page in enumerate(pages):
+    for page_index, page in rendered_pages(pdf, num_pages):
         extractor.set_page_num(page_index)
         extractor.run_model(page)
         page_tables = extractor.extract_table_information()
@@ -357,7 +373,7 @@ def _extract_figures_and_tables_from_pdf(self, pdf, num_pages=None):
         figures.extend(table for table in page_tables if table["figure"]["bbox"])
         tables.extend(page_tables)
     if not figures:
-        figures = _whole_page_figures(pages)
+        figures = _whole_page_figures(page for _index, page in rendered_pages(pdf, num_pages))
     return {"figures": figures, "tables": tables}
 
 

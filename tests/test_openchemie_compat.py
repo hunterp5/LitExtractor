@@ -299,3 +299,29 @@ def test_layout_context_widens_figure_blocks_but_not_table_blocks(monkeypatch):
     assert seen["figure"] == (16, 16, 74, 74)
     assert seen["table"] == (20, 20, 70, 70)
     assert extractor.blocks["figure"][0].coordinates == (20, 20, 70, 70)
+
+
+def test_pages_are_rendered_a_few_at_a_time(monkeypatch):
+    import types
+
+    from litextractor import compat_figures
+
+    rendered = []
+
+    def convert_from_path(pdf, first_page, last_page):
+        rendered.append((first_page, last_page))
+        return [f"page {number}" for number in range(first_page, last_page + 1)]
+
+    fake = types.SimpleNamespace(
+        pdfinfo_from_path=lambda pdf: {"Pages": 20}, convert_from_path=convert_from_path
+    )
+    monkeypatch.setitem(sys.modules, "pdf2image", fake)
+    monkeypatch.setattr(compat_figures, "RENDER_BATCH_PAGES", 8)
+
+    pages = compat_figures.rendered_pages("doc.pdf")
+    first = next(pages)
+
+    assert first == (0, "page 1") and rendered == [(1, 8)]  # nothing beyond the first batch
+    assert [index for index, _page in pages] == list(range(1, 20))
+    assert rendered == [(1, 8), (9, 16), (17, 20)]
+    assert [i for i, _ in compat_figures.rendered_pages("doc.pdf", num_pages=10)] == list(range(10))
