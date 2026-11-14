@@ -92,7 +92,7 @@ class DetailPanelPresenter:
         self._show_table_data(molecule, result)
 
     def _show_table_data(self, molecule: ExtractedMolecule, result: ExtractionResult | None) -> None:
-        """List the molecule's linked table rows, or hide the card when there are none."""
+        """List the molecule's figure values and linked table rows; hide the card if none."""
         if self._detail_tables is None:
             return
         text = table_data_html(molecule, result) if result is not None else ""
@@ -177,10 +177,16 @@ class DetailPanelPresenter:
 
 
 def table_data_html(molecule: ExtractedMolecule, result: ExtractionResult) -> str:
-    """Rich text of every table row linked to *molecule*; "" when there are none."""
+    """Rich text of the values printed under *molecule* in its figure and every table row
+    linked to it; "" when there are none."""
     from ..table_review import molecule_rows
 
     blocks = []
+    if molecule.figure_values:
+        blocks.append("<br>".join(
+            ["<b>Printed with the structure</b>",
+             *(html.escape(line) for line in molecule.figure_values)]
+        ))
     for table, row_index, link in molecule_rows(result, molecule.id):
         if link.confirmed:
             status = "confirmed"

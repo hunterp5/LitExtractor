@@ -478,7 +478,7 @@ class MainWindow(QMainWindow):
         information_layout.addLayout(fields_layout)
         content_layout.addWidget(information_card)
 
-        self._detail_tables_card, tables_layout = _build_detail_card("Table data")
+        self._detail_tables_card, tables_layout = _build_detail_card("Data")
         self._detail_tables = QLabel("")
         self._detail_tables.setObjectName("DetailFieldValue")
         self._detail_tables.setWordWrap(True)
@@ -859,9 +859,12 @@ class MainWindow(QMainWindow):
         return result
 
     def export_table_data(self) -> None:
-        """Export the linked table values as a long CSV (one value per line)."""
-        result = self._result_with_tables()
-        if result is None:
+        """Export linked table values and figure values as a long CSV (one value per line)."""
+        result = self._active_result()
+        if result is None or not (
+            result.tables or any(molecule.figure_values for molecule in result.molecules)
+        ):
+            QMessageBox.information(self, APP_NAME, "No table data or figure values to export.")
             return
         default = str(Path(self._last_dir) / f"{Path(result.pdf_path).stem} table data.csv")
         path, _ = QFileDialog.getSaveFileName(

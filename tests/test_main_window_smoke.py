@@ -64,7 +64,7 @@ def test_detail_pane_hides_missing_crop_and_aligns_metadata(qapp):
         for label in window._detail_panel.findChildren(QLabel, "DetailCardTitle")
     }
     assert card_titles == {
-        "Chemical structure", "Patent crop", "Molecule information", "Table data"
+        "Chemical structure", "Patent crop", "Molecule information", "Data"
     }
     molecule = enrich_molecule(
         ExtractedMolecule(smiles="CCO", identifier="EtOH", page=2, source="text")

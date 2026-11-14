@@ -119,6 +119,9 @@ def merge_molecules_by_inchi(molecules: list[ExtractedMolecule]) -> list[Extract
             survivor.context = (
                 f"{survivor.context}\n{molecule.context}" if survivor.context else molecule.context
             )
+        for line in molecule.figure_values:
+            if line not in survivor.figure_values:
+                survivor.figure_values.append(line)
         if survivor.crop_png is None and molecule.crop_png:
             survivor.crop_png = molecule.crop_png
         survivor.score = _max_known(survivor.score, molecule.score)

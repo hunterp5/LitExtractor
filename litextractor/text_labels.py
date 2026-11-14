@@ -312,6 +312,7 @@ def apply_text_layer_labels(
     ``figure_index == i``. A figure region without text-layer text is OCR'd with
     ``ocr_reader`` (an EasyOCR reader) when one is given. A label found here replaces one from
     the coreference model: in digital PDFs it is the exact printed text, not an OCR reading.
+    Data lines printed under structures (activities, doses) are stored as ``figure_values``.
     """
     by_figure: dict[int, list[ExtractedMolecule]] = {}
     for molecule in molecules:
@@ -338,10 +339,12 @@ def apply_text_layer_labels(
         # Text in the region's inner part only: its edges include context the layout region
         # was widened by (paragraph lines, the caption), which says nothing about the figure.
         inner = _shrink(region, 0.1)
+        from_ocr = False
         if not any(_inside(_center(line.box), inner) for line in lines):
             image = figure_images[figure_index] if figure_images and figure_index < len(figure_images) else None
             try:
                 lines = ocr_lines(image, region, ocr_reader) if image is not None else []
+                from_ocr = True
             except Exception:
                 logger.warning("OCR of a figure on page %d failed", placement.page + 1,
                                exc_info=True)
@@ -356,4 +359,19 @@ def apply_text_layer_labels(
             if label:
                 molecule.identifier = label
                 labelled += 1
+        if not placement.in_table:
+            _apply_figure_values(kept, lines, region, from_ocr)
     return labelled
+
+
+def _apply_figure_values(
+    kept: list[tuple[ExtractedMolecule, Box]], lines: list[TextLine], region: Box, from_ocr: bool
+) -> None:
+    """Store the data lines printed under each structure of a figure on its molecule."""
+    from .figure_values import fix_ocr_text, values_near
+
+    if from_ocr:
+        lines = [TextLine(line.box, fix_ocr_text(line.text)) for line in lines]
+    found = values_near([box for _, box in kept], lines, region)
+    for (molecule, _box), values in zip(kept, found):
+        molecule.figure_values = values

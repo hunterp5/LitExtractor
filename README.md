@@ -9,6 +9,7 @@ LitExtractor is a desktop application for finding chemical structures and relate
 - Review structures, SMILES, identifiers, source pages, formulas, molecular weights, and InChIKeys.
 - Select a molecule to view its structure, patent crop on a white canvas, and metadata in a fixed-width preview pane.
 - Read data tables (activity, yield, properties) and match their rows to structures by label, with a Tables tab to confirm, choose or correct each match.
+- Keep the values printed under or beside structures in figures ("FAK: IC50 = 4.0 nM", doses and pharmacokinetics) with each structure.
 - Extract several PDFs, or a whole folder, in one go; each gets its own result tab.
 - Turn systematic chemical names in the text into structures with OPSIN (trade names such as "Gefitinib" stay names).
 - Merge duplicate molecules by InChIKey.
@@ -114,12 +115,14 @@ A table whose columns are several lists of compound names (for example "Reversib
 Besides the Excel workbook, table data is exported three ways from the **File** menu:
 
 - **Export CSV / Export SDF**: the columns shown on the Molecules table are added to each molecule (empty while a row's match is ambiguous).
-- **Export table data (long CSV)**: one line per structure, table row and column, with the value as printed, a parsed qualifier, number and unit where the value is a plain measurement ("<0.1" in an "IC50 (nM)" column gives "<", 0.1, nM), and how the row was linked. Unlinked rows are left out.
+- **Export table data (long CSV)**: one line per structure, table row and column, with the value as printed, a parsed qualifier, number and unit where the value is a plain measurement ("<0.1" in an "IC50 (nM)" column gives "<", 0.1, nM), and how the row was linked. Unlinked rows are left out. Values printed with structures in figures follow, with Table "Figure".
 - **Export tables as printed**: one CSV per table in a chosen folder, every row included, with the linked structure, its SMILES and the link status in front.
 
 Each structure is read from exactly the box the molecule detector found; padding that box pulled neighbouring bonds and labels into the crop and made readings worse. Figure regions found by layout detection are widened by a fixed 8% before the figure is cropped, so structures at a figure's edge are not cut off. Table regions are not widened.
 
 Structure labels are taken from the text printed next to each structure. Activity values ("FAK: IC50 = 4.3 nM"), reaction conditions, captions, remarks and panel letters ("a)") are not used as labels. Small disconnected pieces that come from nearby text being read as atoms (a stray "CC" from "Et", a lone platinum atom from "Pt", an attachment point) are removed from figure structures, and the Context column says what was removed; salts and counter-ions are kept.
+
+Values printed with a structure in a figure, such as "FAK: IC50 = 4.0 nM" or a stack of pharmacokinetic lines ("in rat: 5 mg/kg IV dose", "Cmax (ng/mL) = 75.4"), are kept on that structure: they are listed under **Printed with the structure** in the Data card of the preview pane, in the Figure values column of the CSV and Excel exports, and as Table "Figure" lines in the long table-data export (name, value, number and unit, with the heading such as "in rat: 5 mg/kg IV dose" as the table title). They are read from the text layer, or by OCR when the figure is a picture (with common misreadings such as "ICs0" and "ng l mL" undone). A block of lines goes to the nearest structure, preferring one to its left or above it, as values are printed below or to the right of their structure. Reaction conditions under scheme structures ("iPrOH, 80 °C, 8 h", "64% yield"), repeat counts and substituents ("n = 8", "R = Me") are not values; a line such as "43: R = Et" heads the values of compound 43 when several compounds share one drawing. OCR of picture figures needs **Coreferences** on.
 
 **Names from Text** lists the compounds the running text names. A name mentioned many times is one row with all its pages, and a name that already labels a drawn structure gets no separate row. With **Convert names to structures** on, systematic names get a structure from OPSIN (source "text (name)").
 

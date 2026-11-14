@@ -119,6 +119,8 @@ class ExtractedMolecule:
         sources: Every origin that detected this structure (all merged duplicates);
             ``source`` is the primary one.
         pages: Every page the structure appears on, ascending; ``page`` is the first.
+        figure_values: Data lines printed below the structure in its figure, top to bottom,
+            e.g. ``["FAK: IC50 = 4.0 nM"]`` (see :mod:`litextractor.figure_values`).
         id: Stable identifier within a result, used by :class:`TableLink`. Not compared.
     """
 
@@ -138,6 +140,7 @@ class ExtractedMolecule:
     figure_index: int | None = None
     sources: list[str] = field(default_factory=list)
     pages: list[int] = field(default_factory=list)
+    figure_values: list[str] = field(default_factory=list)
     id: str = field(default_factory=lambda: uuid4().hex[:12], compare=False)
 
     def __post_init__(self) -> None:

@@ -30,7 +30,7 @@ import csv
 import re
 from pathlib import Path
 
-from .models import ExtractedTable, ExtractionResult, TableLink
+from .models import ExtractedMolecule, ExtractedTable, ExtractionResult, TableLink
 from .table_review import RowStatus, molecule_by_id, row_links, row_status
 
 LONG_FIELDS = [
@@ -102,6 +102,7 @@ def long_rows(result: ExtractionResult, include_ambiguous: bool = True) -> list[
 
     Rows linked to several molecules appear once per molecule with Link "ambiguous", unless
     *include_ambiguous* is False. Unlinked rows are left out: they are in the per-table export.
+    Values printed under structures in figures follow (see :func:`figure_value_rows`).
     """
     lines: list[dict[str, str]] = []
     for table in result.tables:
@@ -136,6 +137,41 @@ def long_rows(result: ExtractionResult, include_ambiguous: bool = True) -> list[
                         "Unit": units[column] if number is not None else "",
                         "Link": status,
                     })
+    lines += figure_value_rows(result.molecules)
+    return lines
+
+
+#: What the long export calls values printed under a structure in a figure.
+FIGURE_TABLE = "Figure"
+
+
+def figure_value_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, str]]:
+    """Long-form lines for the values printed under structures in figures.
+
+    Table is "Figure", Table title the heading the value was printed under (such as
+    "in rat: 5 mg/kg IV dose"), Column what was measured and Link "printed with structure".
+    """
+    from .figure_values import parse_figure_values
+
+    lines: list[dict[str, str]] = []
+    for molecule in molecules:
+        for value in parse_figure_values(molecule.figure_values):
+            lines.append({
+                "Identifier": molecule.identifier,
+                "SMILES": molecule.smiles,
+                "InChIKey": molecule.inchi_key,
+                "Table": FIGURE_TABLE,
+                "Table title": value.heading,
+                "Pages": "; ".join(str(page) for page in molecule.page_numbers),
+                "Row": "",
+                "Row label": molecule.identifier,
+                "Column": value.name,
+                "Value": value.value,
+                "Qualifier": value.qualifier,
+                "Number": _number_text(value.number),
+                "Unit": value.unit,
+                "Link": "printed with structure",
+            })
     return lines
 
 

@@ -54,6 +54,7 @@ def molecule_export_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, s
                 ),
                 "InChIKey": molecule.inchi_key,
                 "Context": molecule.context,
+                "Figure values": "; ".join(molecule.figure_values),
             }
         )
     return rows
@@ -92,6 +93,7 @@ def write_csv(
         "MW",
         "InChIKey",
         "Context",
+        "Figure values",
     ]
     rows = molecule_export_rows(molecules)
     for row, molecule in zip(rows, molecules):
@@ -171,3 +173,5 @@ def _set_sdf_properties(rdkit_mol, molecule: ExtractedMolecule) -> None:
         rdkit_mol.SetProp("InChIKey", molecule.inchi_key)
     if molecule.context:
         rdkit_mol.SetProp("Context", molecule.context)
+    if molecule.figure_values:
+        rdkit_mol.SetProp("FigureValues", "\n".join(molecule.figure_values))

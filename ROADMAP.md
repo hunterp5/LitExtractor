@@ -38,6 +38,13 @@ Measured on full runs of the EGFR, FAK and JAK reviews (November 2026):
   works, with OPSIN turning systematic names into structures. EGFR Table 3 links 13 of 14 rows
   (9 before).
 
+- Values printed with structures in figures (activities, doses, pharmacokinetics) are kept on
+  each structure and exported. A full FAK run gives 72 of 137 structures about 215 value lines;
+  on pages 4-5, checked by eye, every value went to the right structure, including blocks
+  printed beside a structure rather than below it. Reaction conditions under scheme structures
+  are left out. Open: a bare number from a value line ("AUC ... 2757") can still be taken as
+  a compound label.
+
 ## Shelved: going beyond OpenChemIE
 
 Paused in November 2026 so that the table work comes first. The work so far is on the local

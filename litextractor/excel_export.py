@@ -17,7 +17,7 @@
 """Export one extraction result as an Excel workbook.
 
 Sheets: Molecules (with a picture of each structure and the table columns shown beside the
-molecules), Table data (the long form), one sheet per table as printed (unmatched rows
+molecules), Table data (the long form, with values printed under structures in figures), one sheet per table as printed (unmatched rows
 included) and Reactions when there are any. Every text cell is written as text, never as a
 formula: extracted values such as "=45 nM" must not be evaluated by Excel.
 """
@@ -144,7 +144,7 @@ def write_xlsx(
             workbook, _sheet_name("Molecules", used), result, molecules, formats,
             structure_images,
         )
-        if result.tables:
+        if result.tables or any(molecule.figure_values for molecule in result.molecules):
             name = _sheet_name("Table data", used)
             sheet = _Sheet(workbook, name, LONG_FIELDS, formats)
             number_column = LONG_FIELDS.index("Number")
