@@ -127,3 +127,56 @@ def test_results_without_tables_explain_why(qapp):
 
     assert tab.tabs.tabText(TABLES_TAB) == "Tables (0)"
     assert tab.tables_view._stack.currentWidget() is tab.tables_view.empty_label
+
+
+def test_double_clicking_a_table_image_opens_it_zoomable(qapp):
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QImage
+
+    from litextractor.ui.dialogs.image_viewer import ClickableImage
+
+    image = QImage(800, 400, QImage.Format_RGB32)
+    image.fill(Qt.white)
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.WriteOnly)
+    image.save(buffer, "PNG")
+    result, table, _, _ = egfr_result()
+    table.crops_png = [bytes(data), bytes(data)]
+    tab = ExtractionResultTab()
+    tab.set_result(result)
+    opened = []
+    original = tab.tables_view.open_crop
+    tab.tables_view.open_crop = lambda *args: opened.append(original(*args))
+
+    crops = tab.tables_view.crop_container.findChildren(ClickableImage)
+    crops[1].double_clicked.emit()
+
+    (viewer,) = opened
+    assert viewer.windowTitle() == "Table 3 · p. 3 · image 2 of 2"
+    assert viewer.isVisible() and not viewer.isModal()
+    viewer.set_zoom(1.0)
+    assert viewer.image_label.pixmap().width() == 800 and viewer.zoom_label.text() == "100%"
+    viewer.zoom_by(1.25)
+    assert viewer.image_label.pixmap().width() == 1000
+    viewer.zoom_by(100)
+    assert viewer.zoom == 8.0
+    viewer.fit_to_window()
+    assert viewer.image_label.pixmap().width() <= viewer.scroll_area.viewport().width()
+    viewer.close()
+
+
+def test_reactions_tab_shows_only_when_reactions_were_extracted(qapp):
+    from litextractor.models import ExtractedReaction
+
+    without, asked, found = ExtractionResultTab(), ExtractionResultTab(), ExtractionResultTab()
+
+    without.set_result(ExtractionResult("a.pdf", [], []))
+    asked.set_result(ExtractionResult("b.pdf", [], [], reactions_requested=True))
+    reaction = ExtractedReaction(page=2, reactants=["CCO"], products=["CC=O"], conditions="")
+    found.set_result(ExtractionResult("c.pdf", [], [reaction]))
+
+    assert not without.tabs.isTabVisible(1)
+    assert asked.tabs.isTabVisible(1) and asked.tabs.tabText(1) == "Reactions (0)"
+    assert found.tabs.isTabVisible(1)
+    assert without.tabs.isTabVisible(TABLES_TAB)

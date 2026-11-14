@@ -20,9 +20,8 @@ OpenChemIE's own table extraction, which reads the PDF's text layer.
    table and column, with raw and parsed values) and each table on its own, including rows that
    matched no molecule.
 5. **Later.** R-group tables (core plus R1/R2 columns into full structures); tables that list
-   compounds by category (a column of names per class), which are left without a key today;
-   showing tables in the Tables tab at a readable zoom, since OpenChemIE's table image can be
-   narrower than the printed table. Tables continuing across pages are joined already.
+   compounds by category (a column of names per class), which are left without a key today.
+   Tables continuing across pages are joined already.
 
 ## Shelved: going beyond OpenChemIE
 

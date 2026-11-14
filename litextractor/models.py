@@ -261,6 +261,8 @@ class ExtractionResult:
         table_links: Pairings of table rows with molecules.
         shown_table_columns: Table columns the user chose to show beside each molecule, as
             ``(table id, column index)`` pairs, in the order chosen.
+        reactions_requested: True when the run was asked to extract reactions (so an empty
+            reaction list means none were found, not that none were looked for).
     """
 
     pdf_path: str
@@ -270,3 +272,4 @@ class ExtractionResult:
     tables: list[ExtractedTable] = field(default_factory=list)
     table_links: list[TableLink] = field(default_factory=list)
     shown_table_columns: list[tuple[str, int]] = field(default_factory=list)
+    reactions_requested: bool = False

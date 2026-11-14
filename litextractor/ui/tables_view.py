@@ -24,7 +24,7 @@ on the Molecules table.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QPoint, Qt, Signal
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QComboBox,
@@ -55,6 +55,7 @@ from ..table_review import (
     toggle_shown_column,
     unlink_row,
 )
+from .dialogs.image_viewer import ClickableImage, ImageViewerDialog
 from .qt_widget_utils import pixmap_from_png
 
 LINK_COLUMN = 0
@@ -260,7 +261,11 @@ class TablesView(QWidget):
         self._crop_layout.setContentsMargins(4, 4, 4, 4)
         crop_scroll = QScrollArea()
         crop_scroll.setWidgetResizable(True)
+        crop_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         crop_scroll.setWidget(self.crop_container)
+        crop_scroll.viewport().installEventFilter(self)
+        self._crop_scroll = crop_scroll
+        self._crop_images: list[tuple[ClickableImage, object]] = []
 
         self.grid_model = TableGridModel(self)
         self.grid_model.links_changed.connect(self._after_change)
@@ -353,22 +358,55 @@ class TablesView(QWidget):
             item = self._crop_layout.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
-        for png in table.crops_png if table else []:
+        self._crop_images = []
+        crops = table.crops_png if table else []
+        for position, png in enumerate(crops):
             pixmap = pixmap_from_png(png)
             if pixmap.isNull():
                 continue
-            label = QLabel()
+            label = ClickableImage()
             label.setObjectName("TableCrop")
-            label.setPixmap(
-                pixmap.scaledToWidth(min(pixmap.width(), _CROP_WIDTH - 24), Qt.SmoothTransformation)
+            label.double_clicked.connect(
+                lambda pixmap=pixmap, position=position: self.open_crop(
+                    pixmap, position, len(crops)
+                )
             )
             label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+            self._crop_images.append((label, pixmap))
             self._crop_layout.addWidget(label)
         if self._crop_layout.count() == 0:
             placeholder = QLabel("No image of this table.")
             placeholder.setAlignment(Qt.AlignCenter)
             self._crop_layout.addWidget(placeholder)
         self._crop_layout.addStretch(1)
+        self._fit_crops()
+
+    def _fit_crops(self) -> None:
+        """Scale the table images to the width of their pane (never above actual size)."""
+        width = max(40, self._crop_scroll.viewport().width() - 12)
+        for label, pixmap in self._crop_images:
+            label.setPixmap(
+                pixmap.scaledToWidth(min(pixmap.width(), width), Qt.SmoothTransformation)
+            )
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        """Refit the table images when their pane is resized."""
+        if watched is self._crop_scroll.viewport() and event.type() == QEvent.Resize:
+            self._fit_crops()
+        return super().eventFilter(watched, event)
+
+    def open_crop(self, pixmap, position: int = 0, count: int = 1) -> ImageViewerDialog:
+        """Open a table image full size in a zoomable window beside the grid."""
+        table = self.current_table()
+        title = table.name if table is not None else "Table"
+        if table is not None and table.pages:
+            title += f" · p. {', '.join(str(page) for page in table.pages)}"
+        if count > 1:
+            title += f" · image {position + 1} of {count}"
+        viewer = ImageViewerDialog(pixmap, title, self)
+        viewer.show()
+        viewer.raise_()
+        return viewer
 
     def _update_summary(self) -> None:
         table = self.current_table()

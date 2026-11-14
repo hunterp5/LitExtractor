@@ -85,6 +85,8 @@ class ExtractionResultTab(QWidget):
 
         self.tabs.setTabText(MOLECULES_TAB, f"Molecules ({len(result.molecules)})")
         self.tabs.setTabText(REACTIONS_TAB, f"Reactions ({len(result.reactions)})")
+        # Reactions are off by default; their tab only shows when they were looked for.
+        self.tabs.setTabVisible(REACTIONS_TAB, result.reactions_requested or bool(result.reactions))
         self.tabs.setTabText(TABLES_TAB, f"Tables ({len(result.tables)})")
 
     def show_molecule(self, molecule_id: str) -> None:

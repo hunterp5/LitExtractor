@@ -79,7 +79,7 @@ After an editable installation, the `litextractor` console command is also avail
 1. Open a PDF using **File → Open PDF** or the Open PDF control.
 2. Select the sources to process: figures, text, coreferences, reactions, or data tables.
 3. Optionally set a page range, a molecule limit, and a device.
-4. Start extraction and review the results in the Molecules and Reactions tabs. Each extraction is kept in its own result tab; right-click a result tab and confirm to delete it.
+4. Start extraction and review the results in the Molecules, Tables and Reactions tabs (Reactions appears only when reactions were extracted). Each extraction is kept in its own result tab; right-click a result tab and confirm to delete it.
 5. Review table data in the **Tables** tab (see below).
 6. Export molecule results through **File → Export**. Exports use the currently active result tab.
 
@@ -94,7 +94,7 @@ Each row is matched to a structure by its key column (a header such as "Ex No", 
 - ✓ name: confirmed, or linked by hand;
 - —: no match; right-click to link a structure.
 
-Double-click a cell to correct it; correcting a key cell matches the row again. Right-click a column header to show that column on the Molecules table (as "Table 3 · IC50 (nM)") or to match rows by another column. The detail pane lists the table rows linked to the selected structure; click one to open it in the Tables tab.
+Double-click the table image to open it full size in a zoomable window (Ctrl+scroll or the zoom buttons) that can stay open beside the grid. Double-click a cell to correct it; correcting a key cell matches the row again. Right-click a column header to show that column on the Molecules table (as "Table 3 · IC50 (nM)") or to match rows by another column. The detail pane lists the table rows linked to the selected structure; click one to open it in the Tables tab.
 
 A table whose columns are several lists of compound names (for example "Reversible" beside "Irreversible") gets no key column, because pairing its names by row would be wrong; choose one by hand if its rows do describe one compound each.
 

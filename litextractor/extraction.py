@@ -249,6 +249,7 @@ class _ExtractionRun:
                 warnings=self.warnings,
                 tables=self.tables,
                 table_links=self.table_links,
+                reactions_requested=self._options.reactions,
             )
         finally:
             if is_temporary_pdf:
