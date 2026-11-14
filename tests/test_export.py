@@ -135,7 +135,7 @@ def test_export_failure_is_reported_and_does_not_change_last_dir(
         lambda _parent, _title, message: errors.append(message),
     )
 
-    def fail_to_write(_path, _molecules):
+    def fail_to_write(_path, _molecules, _result=None):
         raise PermissionError("permission denied")
 
     monkeypatch.setattr("litextractor.ui.main_window.write_csv", fail_to_write)

@@ -10,7 +10,7 @@ LitExtractor is a desktop application for finding chemical structures and relate
 - Select a molecule to view its structure, patent crop on a white canvas, and metadata in a fixed-width preview pane.
 - Read data tables (activity, yield, properties) and match their rows to structures by label, with a Tables tab to confirm, choose or correct each match.
 - Merge duplicate molecules by InChIKey.
-- Export molecule data to CSV, SDF, or SMILES.
+- Export molecule data to CSV, SDF, or SMILES, and table data as a long CSV or as each table as printed.
 - Choose CPU or CUDA for model inference. CPU is available immediately; CUDA detection runs in the background after the window opens.
 - A simple centered workspace message shows when to open a PDF and reports initial extraction progress.
 - View recommended software and research citations from **Help → Citations**.
@@ -95,6 +95,14 @@ Each row is matched to a structure by its key column (a header such as "Ex No", 
 - —: no match; right-click to link a structure.
 
 Double-click a cell to correct it; correcting a key cell matches the row again. Right-click a column header to show that column on the Molecules table (as "Table 3 · IC50 (nM)") or to match rows by another column. The detail pane lists the table rows linked to the selected structure; click one to open it in the Tables tab.
+
+A table whose columns are several lists of compound names (for example "Reversible" beside "Irreversible") gets no key column, because pairing its names by row would be wrong; choose one by hand if its rows do describe one compound each.
+
+Table data is exported three ways from the **File** menu:
+
+- **Export CSV / Export SDF**: the columns shown on the Molecules table are added to each molecule (empty while a row's match is ambiguous).
+- **Export table data (long CSV)**: one line per structure, table row and column, with the value as printed, a parsed qualifier, number and unit where the value is a plain measurement ("<0.1" in an "IC50 (nM)" column gives "<", 0.1, nM), and how the row was linked. Unlinked rows are left out.
+- **Export tables as printed**: one CSV per table in a chosen folder, every row included, with the linked structure, its SMILES and the link status in front.
 
 Each structure is read from exactly the box the molecule detector found; padding that box pulled neighbouring bonds and labels into the crop and made readings worse. Figure regions found by layout detection are widened by a fixed 8% before the figure is cropped, so structures at a figure's edge are not cut off. Table regions are not widened.
 

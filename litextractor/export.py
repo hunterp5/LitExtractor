@@ -14,7 +14,12 @@
 # You should have received a copy of the GNU General Public License
 # along with LitExtractor.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Export extracted molecules to CSV, SMILES, and SDF."""
+"""Export extracted molecules to CSV, SMILES, and SDF.
+
+Given the extraction result, CSV and SDF exports also carry the table columns the user chose to
+show beside the molecules (the "wide" form of table data). Long-form and per-table exports are
+in :mod:`litextractor.table_export`.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +27,7 @@ import csv
 import logging
 from pathlib import Path
 
-from .models import ExtractedMolecule
+from .models import ExtractedMolecule, ExtractionResult
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +56,28 @@ def molecule_export_rows(molecules: list[ExtractedMolecule]) -> list[dict[str, s
     return rows
 
 
-def write_csv(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
-    """Write molecule records as UTF-8 CSV."""
+def shown_table_values(
+    result: ExtractionResult | None, molecule: ExtractedMolecule
+) -> dict[str, str]:
+    """The molecule's values in the table columns shown beside it, by column header."""
+    from .table_review import molecule_value, shown_column_header, table_by_id
+
+    values: dict[str, str] = {}
+    for table_id, column in result.shown_table_columns if result is not None else []:
+        table = table_by_id(result, table_id)
+        if table is not None:
+            values[shown_column_header(table, column)] = molecule_value(
+                result, table_id, column, molecule.id
+            )
+    return values
+
+
+def write_csv(
+    path: str | Path,
+    molecules: list[ExtractedMolecule],
+    result: ExtractionResult | None = None,
+) -> None:
+    """Write molecule records as UTF-8 CSV, with *result*'s shown table columns appended."""
     fieldnames = [
         "SMILES",
         "Identifier",
@@ -67,6 +92,9 @@ def write_csv(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
         "Context",
     ]
     rows = molecule_export_rows(molecules)
+    for row, molecule in zip(rows, molecules):
+        row.update(shown_table_values(result, molecule))
+    fieldnames += [header for header in (rows[0] if rows else {}) if header not in fieldnames]
     with Path(path).open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -83,8 +111,15 @@ def write_smi(path: str | Path, molecules: list[ExtractedMolecule]) -> None:
             handle.write(f"{molecule.smiles}\t{name}\n" if name else f"{molecule.smiles}\n")
 
 
-def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
+def write_sdf(
+    path: str | Path,
+    molecules: list[ExtractedMolecule],
+    result: ExtractionResult | None = None,
+) -> int:
     """Write RDKit-parseable records to SDF. Returns the number of molecules written.
+
+    The table columns shown beside the molecules in *result* become SDF data fields (empty
+    values are left out).
 
     Records RDKit cannot parse or serialize (for example OCR'd aromatic rings that cannot be
     kekulized) are skipped individually so one bad structure does not abort the export.
@@ -101,6 +136,9 @@ def write_sdf(path: str | Path, molecules: list[ExtractedMolecule]) -> int:
             if rdkit_mol is None:
                 continue
             _set_sdf_properties(rdkit_mol, molecule)
+            for header, value in shown_table_values(result, molecule).items():
+                if value:
+                    rdkit_mol.SetProp(header, value)
             try:
                 # A failed write emits nothing, so the file stays well-formed.
                 writer.write(rdkit_mol)

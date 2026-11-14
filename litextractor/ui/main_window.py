@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..export import write_csv, write_sdf, write_smi
+from ..table_export import write_long_csv, write_table_csvs
 from ..models import ExtractOptions, ExtractedMolecule, ExtractionResult
 from ..structure_dimensions import DETAIL_STRUCTURE_HEIGHT
 from ..workers.cuda_probe_worker import CudaAvailabilityWorker
@@ -209,6 +210,12 @@ class MainWindow(QMainWindow):
         file_menu.addAction(QAction("Export &CSV…", self, triggered=self.export_csv))
         file_menu.addAction(QAction("Export S&DF…", self, triggered=self.export_sdf))
         file_menu.addAction(QAction("Export S&MILES…", self, triggered=self.export_smi))
+        file_menu.addAction(
+            QAction("Export &table data (long CSV)…", self, triggered=self.export_table_data)
+        )
+        file_menu.addAction(
+            QAction("Export tables as &printed…", self, triggered=self.export_tables)
+        )
         file_menu.addSeparator()
         file_menu.addAction(QAction("E&xit", self, shortcut="Ctrl+Q", triggered=self.close))
 
@@ -723,21 +730,26 @@ class MainWindow(QMainWindow):
         self._last_dir = str(Path(path).parent)
         self.status_label.setText(success_message(path, write_result, len(molecules)))
 
+    def _active_result(self) -> ExtractionResult | None:
+        return self._active_result_tab.result if self._active_result_tab is not None else None
+
     def export_csv(self) -> None:
-        """Export the active tab's molecules as CSV."""
+        """Export the active tab's molecules as CSV, with the table columns shown beside them."""
+        result = self._active_result()
         self._export_molecules(
             "Export CSV",
             "CSV files (*.csv)",
-            write_csv,
+            lambda path, molecules: write_csv(path, molecules, result),
             lambda path, _result, _total: f"Wrote {Path(path).name}",
         )
 
     def export_sdf(self) -> None:
-        """Export the active tab's molecules as an SDF file."""
+        """Export the active tab's molecules as an SDF file, with their shown table columns."""
+        result = self._active_result()
         self._export_molecules(
             "Export SDF",
             "SDF files (*.sdf)",
-            write_sdf,
+            lambda path, molecules: write_sdf(path, molecules, result),
             _sdf_success_message,
         )
 
@@ -749,3 +761,48 @@ class MainWindow(QMainWindow):
             write_smi,
             lambda path, _result, _total: f"Wrote {Path(path).name}",
         )
+
+    def _result_with_tables(self) -> ExtractionResult | None:
+        """Return the active result if it has tables, else tell the user and return None."""
+        result = self._active_result()
+        if result is None or not result.tables:
+            QMessageBox.information(self, APP_NAME, "No extracted tables to export.")
+            return None
+        return result
+
+    def export_table_data(self) -> None:
+        """Export the linked table values as a long CSV (one value per line)."""
+        result = self._result_with_tables()
+        if result is None:
+            return
+        default = str(Path(self._last_dir) / f"{Path(result.pdf_path).stem} table data.csv")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export table data", default, "CSV files (*.csv)"
+        )
+        if not path:
+            return
+        try:
+            count = write_long_csv(path, result)
+        except Exception as exc:
+            logger.exception("Could not export table data to %s", path)
+            QMessageBox.critical(self, APP_NAME, f"Could not export to:\n{path}\n\n{exc}")
+            return
+        self._last_dir = str(Path(path).parent)
+        self.status_label.setText(f"Wrote {count} table value(s) to {Path(path).name}")
+
+    def export_tables(self) -> None:
+        """Export each table as printed, including unlinked rows, to a folder of CSVs."""
+        result = self._result_with_tables()
+        if result is None:
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Export tables to folder", self._last_dir)
+        if not folder:
+            return
+        try:
+            written = write_table_csvs(folder, result)
+        except Exception as exc:
+            logger.exception("Could not export tables to %s", folder)
+            QMessageBox.critical(self, APP_NAME, f"Could not export to:\n{folder}\n\n{exc}")
+            return
+        self._last_dir = folder
+        self.status_label.setText(f"Wrote {len(written)} table(s) to {Path(folder).name}")

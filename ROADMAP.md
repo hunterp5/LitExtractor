@@ -16,11 +16,13 @@ OpenChemIE's own table extraction, which reads the PDF's text layer.
 3. **Tables tab** (done). The table image beside its parsed grid, a link status per row,
    confirming, choosing and linking rows by hand, correcting cells, chosen table columns shown on
    the molecule table ("Table 3 · IC50 (nM)"), and a table-data card in the detail pane.
-4. **Exports.** Wide (one row per molecule with the chosen columns), long (one row per molecule,
+4. **Exports** (done). Wide (one row per molecule with the chosen columns), long (one row per molecule,
    table and column, with raw and parsed values) and each table on its own, including rows that
    matched no molecule.
-5. **Later.** R-group tables (core plus R1/R2 columns into full structures) and tables that
-   continue across pages.
+5. **Later.** R-group tables (core plus R1/R2 columns into full structures); tables that list
+   compounds by category (a column of names per class), which are left without a key today;
+   showing tables in the Tables tab at a readable zoom, since OpenChemIE's table image can be
+   narrower than the printed table. Tables continuing across pages are joined already.
 
 ## Shelved: going beyond OpenChemIE
 

@@ -108,7 +108,7 @@ def test_extractions_create_separate_tabs_and_export_uses_active_table(
     monkeypatch.setattr(
         main_window,
         "write_csv",
-        lambda _path, molecules: exported.extend(molecules),
+        lambda _path, molecules, _result=None: exported.extend(molecules),
     )
 
     window._on_extract_finished(first_result)

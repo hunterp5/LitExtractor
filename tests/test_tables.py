@@ -202,11 +202,16 @@ def test_key_column_comes_from_header_then_label_overlap_then_id_like_first_colu
     by_overlap = _table(["Value", "Label"], [["5", "12a"], ["6", "12b"], ["7", "x"]])
     by_ids = _table(["", ""], [["1", "+++"], ["2", "++"]])
     text_only = _table(["Reversible", "Irreversible"], [["Brigatinib", "Afatinib"]])
+    category_lists = _table(
+        ["Reversible", "Irreversible"], [["Brigatinib", "Afatinib"], ["Erlotinib", "Neratinib"]]
+    )
 
     assert detect_key_column(by_header) == 1
     assert detect_key_column(by_overlap, {"12a", "12b"}) == 1
     assert detect_key_column(by_ids) == 0
     assert detect_key_column(text_only) is None
+    names = {"brigatinib", "afatinib", "erlotinib", "neratinib"}
+    assert detect_key_column(category_lists, names) is None
 
 
 class TableClient:

@@ -389,20 +389,25 @@ def detect_key_column(table: ExtractedTable, labels: set[str] | None = None) -> 
     """Return the column holding compound labels or names, or None.
 
     A header such as "Ex No", "Compound", "Entry" or "Drug" decides first. Otherwise the column
-    whose cells match the most known molecule labels wins, if at least two do. Failing that, a
-    first column of compound-number-like values ("12", "12a") is taken.
+    whose cells match known molecule labels wins, if at least two do; when several columns do,
+    the table lists compounds by category and has no key. Failing that, a first column of
+    compound-number-like values ("12", "12a") is taken.
     """
     for index, header in enumerate(table.columns):
         if header and _KEY_HEADER.match(header):
             return index
     labels = labels or set()
-    best, best_hits = None, 1
-    for index in range(len(table.columns)):
-        hits = sum(bool(_label_variants(row[index]) & labels) for row in table.rows)
-        if hits > best_hits:
-            best, best_hits = index, hits
-    if best is not None:
-        return best
+    hits = [
+        sum(bool(_label_variants(row[index]) & labels) for row in table.rows)
+        for index in range(len(table.columns))
+    ]
+    matching = [index for index, count in enumerate(hits) if count >= 2]
+    if len(matching) > 1:
+        # Several columns of compound names: lists by category ("Reversible" beside
+        # "Irreversible"), not rows about one compound. Pairing them by row would be wrong.
+        return None
+    if matching:
+        return matching[0]
     if table.columns and _column_kind(table.rows, 0) == "id":
         return 0
     return None
